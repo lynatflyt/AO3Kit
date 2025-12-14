@@ -7,8 +7,8 @@ let package = Package(
     name: "AO3Kit",
     platforms: [
         .macOS(.v12),
-        .iOS(.v15),
-        .tvOS(.v15),
+        .iOS(.v17),
+        .tvOS(.v17),
         .watchOS(.v8)
     ],
     products: [

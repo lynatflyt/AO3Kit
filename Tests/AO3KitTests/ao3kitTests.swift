@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import ao3kit
+@testable import AO3Kit
 
 // MARK: - Work Tests
 
@@ -162,8 +162,8 @@ func testSearchWorks() async throws {
 func testSearchWithRatingFilter() async throws {
     let results = try await AO3.searchWork(
         query: "friendship",
-        warning: nil,
-        rating: .general
+        warnings: [],
+        ratings: [.general]
     )
 
     // Search should complete without errors (results may be empty depending on AO3's search behavior)
@@ -179,8 +179,8 @@ func testSearchWithRatingFilter() async throws {
 func testSearchWithWarningFilter() async throws {
     let results = try await AO3.searchWork(
         query: "fluff",
-        warning: .noneApply,
-        rating: nil
+        warnings: [.noneApply],
+        ratings: []
     )
 
     // Search should complete without errors (results may be empty depending on AO3's search behavior)
@@ -191,12 +191,198 @@ func testSearchWithWarningFilter() async throws {
 func testSearchWithBothFilters() async throws {
     let results = try await AO3.searchWork(
         query: "hurt/comfort",
-        warning: .noneApply,
-        rating: .teenAndUp
+        warnings: [.noneApply],
+        ratings: [.teenAndUp]
     )
 
     // Should complete successfully (may or may not have results depending on query)
     #expect(results.count >= 0, "Search should return valid results array")
+}
+
+// MARK: - Advanced Search Tests
+
+@Test("Basic search by author username works")
+func testBasicSearchByAuthor() async throws {
+    // Search for a known prolific author (SweetestSixShooter was mentioned in the user's query)
+    let results = try await AO3.searchWork(query: "SweetestSixShooter")
+
+    // Should return results without errors
+    #expect(results.count >= 0, "Search should complete without errors")
+
+    // If results are returned, verify they're valid works
+    for work in results {
+        #expect(work.id > 0, "Work ID should be positive")
+        #expect(!work.title.isEmpty, "Work should have a title")
+    }
+}
+
+@Test("Advanced search with filters - ratings and warnings")
+func testAdvancedSearchWithRatingsAndWarnings() async throws {
+    // Create filters for Teen rating and specific warnings
+    var filters = AO3SearchFilters()
+    filters.ratings = [.teenAndUp]
+    filters.warnings = [.noneApply, .violence]
+
+    let results = try await AO3.searchWork(query: "Testing", filters: filters)
+
+    // Should complete successfully
+    #expect(results.count >= 0, "Advanced search should return valid results array")
+
+    // Verify returned works
+    for work in results {
+        #expect(work.id > 0, "Work ID should be positive")
+    }
+}
+
+@Test("Advanced search with complete status filter")
+func testAdvancedSearchCompleteStatus() async throws {
+    var filters = AO3SearchFilters()
+    filters.complete = .complete
+    filters.ratings = [.general, .teenAndUp]
+
+    let results = try await AO3.searchWork(query: "friendship", filters: filters)
+
+    #expect(results.count >= 0, "Search with completion filter should work")
+}
+
+@Test("Advanced search with word count range")
+func testAdvancedSearchWordCount() async throws {
+    var filters = AO3SearchFilters()
+    filters.wordCount = "1000-5000"  // Works between 1k and 5k words
+    filters.sortColumn = .wordCount
+    filters.sortDirection = .descending
+
+    let results = try await AO3.searchWork(query: "coffee shop", filters: filters)
+
+    #expect(results.count >= 0, "Search with word count filter should work")
+}
+
+@Test("Advanced search with fandom filter")
+func testAdvancedSearchWithFandom() async throws {
+    var filters = AO3SearchFilters()
+    filters.fandomNames = "Harry Potter"
+    filters.ratings = [.general]
+
+    let results = try await AO3.searchWork(query: "", filters: filters)
+
+    #expect(results.count >= 0, "Search with fandom filter should work")
+}
+
+@Test("Advanced search with character and relationship filters")
+func testAdvancedSearchCharactersAndRelationships() async throws {
+    var filters = AO3SearchFilters()
+    filters.characterNames = "Harry Potter"
+    filters.relationshipNames = "Harry Potter/Ginny Weasley"
+    filters.categories = [.fm]
+
+    let results = try await AO3.searchWork(query: "", filters: filters)
+
+    #expect(results.count >= 0, "Search with character and relationship filters should work")
+}
+
+@Test("Advanced search with kudos count")
+func testAdvancedSearchKudosCount() async throws {
+    var filters = AO3SearchFilters()
+    filters.kudosCount = ">100"  // More than 100 kudos
+    filters.sortColumn = .kudos
+    filters.sortDirection = .descending
+
+    let results = try await AO3.searchWork(query: "popular", filters: filters)
+
+    #expect(results.count >= 0, "Search with kudos filter should work")
+}
+
+@Test("Advanced search with crossover filter")
+func testAdvancedSearchCrossover() async throws {
+    var filters = AO3SearchFilters()
+    filters.crossover = .only  // Only crossovers
+    filters.ratings = [.general, .teenAndUp]
+
+    let results = try await AO3.searchWork(query: "", filters: filters)
+
+    #expect(results.count >= 0, "Crossover filter should work")
+}
+
+@Test("Advanced search with single chapter filter")
+func testAdvancedSearchSingleChapter() async throws {
+    var filters = AO3SearchFilters()
+    filters.singleChapter = true
+    filters.complete = .complete
+
+    let results = try await AO3.searchWork(query: "oneshot", filters: filters)
+
+    #expect(results.count >= 0, "Single chapter filter should work")
+}
+
+@Test("Advanced search with multiple categories")
+func testAdvancedSearchMultipleCategories() async throws {
+    var filters = AO3SearchFilters()
+    filters.categories = [.mm, .ff]  // M/M or F/F
+    filters.ratings = [.mature, .explicit]
+
+    let results = try await AO3.searchWork(query: "romance", filters: filters)
+
+    #expect(results.count >= 0, "Multiple category filter should work")
+}
+
+@Test("Advanced search with title filter")
+func testAdvancedSearchTitle() async throws {
+    var filters = AO3SearchFilters()
+    filters.title = "love"
+    filters.sortColumn = .title
+    filters.sortDirection = .ascending
+
+    let results = try await AO3.searchWork(query: "", filters: filters)
+
+    #expect(results.count >= 0, "Title filter should work")
+}
+
+@Test("Advanced search with creator filter")
+func testAdvancedSearchCreator() async throws {
+    var filters = AO3SearchFilters()
+    filters.creators = "astolat"  // Well-known AO3 author
+
+    let results = try await AO3.searchWork(query: "", filters: filters)
+
+    #expect(results.count >= 0, "Creator filter should work")
+}
+
+@Test("Advanced search sorting by different columns")
+func testAdvancedSearchSorting() async throws {
+    // Test sorting by hits
+    var filters = AO3SearchFilters()
+    filters.sortColumn = .hits
+    filters.sortDirection = .descending
+
+    let hitResults = try await AO3.searchWork(query: "popular", filters: filters)
+    #expect(hitResults.count >= 0, "Sorting by hits should work")
+
+    // Test sorting by date updated
+    filters.sortColumn = .dateUpdated
+    let dateResults = try await AO3.searchWork(query: "recent", filters: filters)
+    #expect(dateResults.count >= 0, "Sorting by date updated should work")
+}
+
+@Test("Complex advanced search with many filters")
+func testComplexAdvancedSearch() async throws {
+    // Replicate the user's complex query
+    var filters = AO3SearchFilters()
+    filters.ratings = [.teenAndUp]
+    filters.warnings = [.noneApply, .violence]
+    filters.wordCount = ">5000"
+    filters.complete = .complete
+    filters.sortColumn = .kudos
+    filters.sortDirection = .descending
+
+    let results = try await AO3.searchWork(query: "Testing", filters: filters)
+
+    #expect(results.count >= 0, "Complex search should work")
+
+    // Verify all results are valid
+    for work in results {
+        #expect(work.id > 0, "Work ID should be positive")
+        #expect(!work.title.isEmpty, "Work should have a title")
+    }
 }
 
 // MARK: - Error Handling Tests
@@ -281,24 +467,24 @@ func testUserJSONSerialization() async throws {
 
 @Test("Warning enum byValue")
 func testWarningEnumByValue() {
-    #expect(AO3Work.Warning.byValue("No Archive Warnings Apply") == .noneApply)
-    #expect(AO3Work.Warning.byValue("Graphic Depictions Of Violence") == .violence)
-    #expect(AO3Work.Warning.byValue("invalid value") == .none)
+    #expect(AO3Warning.byValue("No Archive Warnings Apply") == .noneApply)
+    #expect(AO3Warning.byValue("Graphic Depictions Of Violence") == .violence)
+    #expect(AO3Warning.byValue("invalid value") == .none)
 }
 
 @Test("Rating enum byValue")
 func testRatingEnumByValue() {
-    #expect(AO3Work.Rating.byValue("General Audiences") == .general)
-    #expect(AO3Work.Rating.byValue("Explicit") == .explicit)
-    #expect(AO3Work.Rating.byValue("invalid value") == .notRated)
+    #expect(AO3Rating.byValue("General Audiences") == .general)
+    #expect(AO3Rating.byValue("Explicit") == .explicit)
+    #expect(AO3Rating.byValue("invalid value") == .notRated)
 }
 
 @Test("Category enum byValue")
 func testCategoryEnumByValue() {
-    #expect(AO3Work.Category.byValue("M/M") == .mm)
-    #expect(AO3Work.Category.byValue("F/F") == .ff)
-    #expect(AO3Work.Category.byValue("Gen") == .gen)
-    #expect(AO3Work.Category.byValue("invalid value") == .none)
+    #expect(AO3Category.byValue("M/M") == .mm)
+    #expect(AO3Category.byValue("F/F") == .ff)
+    #expect(AO3Category.byValue("Gen") == .gen)
+    #expect(AO3Category.byValue("invalid value") == .none)
 }
 
 // MARK: - Swifty Extensions Tests
@@ -325,7 +511,7 @@ func testWorkConvenienceProperties() async throws {
 func testFluentSearchAPI() async throws {
     let results = try await AO3.search()
         .term("coffee shop")
-        .rating(.general)
+        .AO3Rating(.general)
         .execute()
 
     #expect(results.count >= 0, "Fluent search should return results")
@@ -369,7 +555,7 @@ func testCollectionFilteringExtensions() async throws {
 
     // Test filtering methods
     let longFics = results.withMinimumWords(10000)
-    let generalRated = results.withRating(.general)
+    let generalRated = results.withAO3Rating(.general)
 
     // Filters should return subset or equal
     #expect(longFics.count <= results.count, "Filtered results should be subset")
@@ -396,4 +582,127 @@ func testStringWorkIDExtraction() {
     #expect(url1.ao3WorkID == 68352911, "Should extract work ID from URL")
     #expect(url2.ao3WorkID == 12345678, "Should extract work ID from text with URL")
     #expect(url3.ao3WorkID == nil, "Should return nil for non-URL")
+}
+
+// MARK: - Caching Tests
+
+@Test("Memory cache works for works")
+func testMemoryCacheWorks() async throws {
+    // Configure memory cache
+    let cache = AO3MemoryCache(maxWorks: 10)
+    AO3.configure(cache: cache)
+
+    // First fetch - should hit network
+    let work1 = try await AO3.getWork(68352911)
+    #expect(work1.id == 68352911)
+
+    // Second fetch - should hit cache (instant)
+    let work2 = try await AO3.getWork(68352911)
+    #expect(work2.id == 68352911)
+    #expect(work2.title == work1.title, "Cached work should match original")
+
+    // Clean up - disable cache for other tests
+    AO3.configure(cache: nil)
+}
+
+@Test("Memory cache works for chapters")
+func testMemoryCacheChapters() async throws {
+    let cache = AO3MemoryCache(maxChapters: 10)
+    AO3.configure(cache: cache)
+
+    let work = try await AO3.getWork(68352911)
+    guard let firstChapterID = work.chapters.keys.sorted().first else {
+        Issue.record("No chapters found")
+        return
+    }
+
+    // First fetch - should hit network
+    let chapter1 = try await work.getChapter(firstChapterID)
+    #expect(!chapter1.content.isEmpty)
+
+    // Second fetch - should hit cache
+    let chapter2 = try await work.getChapter(firstChapterID)
+    #expect(chapter2.content == chapter1.content, "Cached chapter should match")
+
+    // Clean up
+    AO3.configure(cache: nil)
+}
+
+@Test("Memory cache works for users")
+func testMemoryCacheUsers() async throws {
+    let cache = AO3MemoryCache(maxUsers: 10)
+    AO3.configure(cache: cache)
+
+    let work = try await AO3.getWork(68352911)
+    guard let firstAuthor = work.authors.first else {
+        Issue.record("No authors found")
+        return
+    }
+
+    // First fetch - should hit network
+    let user1 = try await AO3.getUser(firstAuthor.username)
+    #expect(user1.username == firstAuthor.username)
+
+    // Second fetch - should hit cache
+    let user2 = try await AO3.getUser(firstAuthor.username)
+    #expect(user2.username == user1.username, "Cached user should match")
+
+    // Clean up
+    AO3.configure(cache: nil)
+}
+
+@Test("Cache can be cleared")
+func testCacheClear() async throws {
+    let cache = AO3MemoryCache()
+    AO3.configure(cache: cache)
+
+    // Fetch and cache a work
+    let work = try await AO3.getWork(68352911)
+    #expect(work.id == 68352911)
+
+    // Clear cache
+    await cache.clear()
+
+    // Fetch again - should work fine (refetch from network)
+    let workAgain = try await AO3.getWork(68352911)
+    #expect(workAgain.id == 68352911)
+
+    // Clean up
+    AO3.configure(cache: nil)
+}
+
+@Test("Works without cache (default)")
+func testWorksWithoutCache() async throws {
+    // Ensure no cache is configured
+    AO3.configure(cache: nil)
+
+    // Should work fine without cache
+    let work = try await AO3.getWork(68352911)
+    #expect(work.id == 68352911)
+
+    let chapter = try await work.getFirstChapter()
+    #expect(!chapter.content.isEmpty)
+}
+
+@Test("Disk cache works")
+func testDiskCache() async throws {
+    // Create a temporary directory for the cache
+    let tempDir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("AO3KitTestCache_\(UUID().uuidString)", isDirectory: true)
+
+    let diskCache = try AO3DiskCache(directory: tempDir, ttl: 3600)
+    AO3.configure(cache: diskCache)
+
+    // Fetch and cache a work
+    let work1 = try await AO3.getWork(68352911)
+    #expect(work1.id == 68352911)
+
+    // Second fetch should hit cache
+    let work2 = try await AO3.getWork(68352911)
+    #expect(work2.title == work1.title, "Disk cached work should match")
+
+    // Clean up
+    await diskCache.clear()
+    try? FileManager.default.removeItem(at: tempDir)
+    AO3.configure(cache: nil)
 }

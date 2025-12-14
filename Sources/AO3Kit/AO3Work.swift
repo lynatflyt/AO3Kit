@@ -6,9 +6,9 @@ public class AO3Work: AO3Data, @unchecked Sendable {
     public let id: Int
     public private(set) var title: String = ""
     public private(set) var authors: [AO3User] = []
-    public private(set) var archiveWarning: Warning = .none
-    public private(set) var rating: Rating = .notRated
-    public private(set) var category: Category = .none
+    public private(set) var archiveWarning: AO3Warning = .none
+    public private(set) var rating: AO3Rating = .notRated
+    public private(set) var category: AO3Category = .none
     public private(set) var fandom: String = ""
     public private(set) var relationships: [String] = []
     public private(set) var characters: [String] = []
@@ -18,49 +18,6 @@ public class AO3Work: AO3Data, @unchecked Sendable {
     public private(set) var published: Date = Date()
     public private(set) var updated: Date = Date()
     public private(set) var chapters: [Int: String] = [:]
-
-    /// Enumeration of archive warnings
-    public enum Warning: String, Codable, CaseIterable {
-        case noWarnings = "Creator Chose Not To Use Archive Warnings"
-        case noneApply = "No Archive Warnings Apply"
-        case violence = "Graphic Depictions Of Violence"
-        case majorCharacterDeath = "Major Character Death"
-        case nonCon = "Rape/Non-Con"
-        case underage = "Underage"
-        case none = "None"
-
-        public static func byValue(_ value: String) -> Warning {
-            return Warning.allCases.first { $0.rawValue.lowercased() == value.lowercased() } ?? .none
-        }
-    }
-
-    /// Enumeration of archive ratings
-    public enum Rating: String, Codable, CaseIterable {
-        case notRated = "Not Rated"
-        case general = "General Audiences"
-        case teenAndUp = "Teen And Up Audiences"
-        case mature = "Mature"
-        case explicit = "Explicit"
-
-        public static func byValue(_ value: String) -> Rating {
-            return Rating.allCases.first { $0.rawValue.lowercased() == value.lowercased() } ?? .notRated
-        }
-    }
-
-    /// Enumeration of archive categories
-    public enum Category: String, Codable, CaseIterable {
-        case ff = "F/F"
-        case fm = "F/M"
-        case gen = "Gen"
-        case mm = "M/M"
-        case multi = "Multi"
-        case other = "Other"
-        case none = "None"
-
-        public static func byValue(_ value: String) -> Category {
-            return Category.allCases.first { $0.rawValue.lowercased() == value.lowercased() } ?? .none
-        }
-    }
 
     internal init(id: Int) async throws {
         self.id = id
@@ -80,9 +37,9 @@ public class AO3Work: AO3Data, @unchecked Sendable {
         id = try container.decode(Int.self, forKey: .id)
         title = try container.decode(String.self, forKey: .title)
         authors = try container.decode([AO3User].self, forKey: .authors)
-        archiveWarning = try container.decode(Warning.self, forKey: .archiveWarning)
-        rating = try container.decode(Rating.self, forKey: .rating)
-        category = try container.decode(Category.self, forKey: .category)
+        archiveWarning = try container.decode(AO3Warning.self, forKey: .archiveWarning)
+        rating = try container.decode(AO3Rating.self, forKey: .rating)
+        category = try container.decode(AO3Category.self, forKey: .category)
         fandom = try container.decode(String.self, forKey: .fandom)
         relationships = try container.decode([String].self, forKey: .relationships)
         characters = try container.decode([String].self, forKey: .characters)
@@ -144,9 +101,9 @@ public class AO3Work: AO3Data, @unchecked Sendable {
         authors = tempAuthors
 
         // Parse warnings, ratings, categories
-        archiveWarning = Warning.byValue(try getArchiveTag("warning", document: document))
-        rating = Rating.byValue(try getArchiveTag("rating", document: document))
-        category = (try? Category.byValue(getArchiveTag("category", document: document))) ?? .none
+        archiveWarning = AO3Warning.byValue(try getArchiveTag("warning", document: document))
+        rating = AO3Rating.byValue(try getArchiveTag("rating", document: document))
+        category = (try? AO3Category.byValue(getArchiveTag("category", document: document))) ?? .none
 
         // Parse fandom
         fandom = try getWorkTag("fandom", document: document)
@@ -257,6 +214,6 @@ public class AO3Work: AO3Data, @unchecked Sendable {
         guard chapters.keys.contains(chapterID) else {
             throw AO3Exception.chapterNotFound(chapterID)
         }
-        return try await AO3Chapter(workID: id, chapterID: chapterID)
+        return try await AO3.getChapter(workID: id, chapterID: chapterID)
     }
 }

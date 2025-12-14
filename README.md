@@ -2,7 +2,7 @@
 
 A Swift library for accessing data from [Archive of Our Own (AO3)](https://archiveofourown.org). This is a port of the [ao3-java](https://github.com/glorantq/ao3-java) library to Swift.
 
-> **Note:** This is **not** an official API. AO3 does not provide an official API, so this library works by scraping HTML pages. As such, it may break if AO3 changes their HTML structure.
+> **Note:** This is **not** an official API. AO3 does not provide an official API, so this library works by scraping HTML pages. As such, it may break if AO3 changes their HTML structure. It is also not as fast as it could be. We implement a cache to help mitigate this but there is not much we can do.
 
 ## Features
 
@@ -100,43 +100,147 @@ let userWithPseud = try await AO3.getPseud(username: "username", pseud: "pseudon
 
 ### Searching for Works
 
+AO3Kit provides two search methods: **Simple Search** for quick queries, and **Advanced Search** with comprehensive filtering options.
+
+#### Simple Search
+
+Perfect for quick queries with basic rating and warning filters:
+
 ```swift
-// Simple search
-let results = try await AO3.searchWork(query: "sherlock watson")
+// Basic search by query
+let results = try await AO3.searchWork(query: "coffee shop AU")
 
 for work in results {
     print("\(work.title) by \(work.authors.map { $0.username }.joined(separator: ", "))")
 }
 
-// Search with filters
-let explicitWorks = try await AO3.searchWork(
-    query: "romance",
-    warning: nil,
-    rating: .explicit
+// Search with rating filters
+let generalResults = try await AO3.searchWork(
+    query: "friendship",
+    warnings: [],
+    ratings: [.general]
 )
 
-let noWarningWorks = try await AO3.searchWork(
+// Search with warning filters
+let safeResults = try await AO3.searchWork(
     query: "fluff",
-    warning: .noneApply,
-    rating: nil
+    warnings: [.noneApply],
+    ratings: []
 )
 
 // Search with both filters
-let filteredWorks = try await AO3.searchWork(
-    query: "adventure",
-    warning: .noneApply,
-    rating: .teenAndUp
+let teenSafeResults = try await AO3.searchWork(
+    query: "hurt/comfort",
+    warnings: [.noneApply],
+    ratings: [.teenAndUp]
 )
 ```
 
-#### Fluent Search API
+#### Advanced Search with Filters
+
+For complex searches with detailed criteria, use `AO3SearchFilters`:
 
 ```swift
-// Use the fluent API for more readable search queries
+// Search by creator/author
+var filters = AO3SearchFilters()
+filters.creators = "astolat"
+let works = try await AO3.searchWork(query: "", filters: filters)
+
+// Search with ratings and warnings
+var filters = AO3SearchFilters()
+filters.ratings = [.teenAndUp]
+filters.warnings = [.noneApply, .violence]
+let results = try await AO3.searchWork(query: "Testing", filters: filters)
+
+// Search with word count range
+var filters = AO3SearchFilters()
+filters.wordCount = "1000-5000"  // Between 1k and 5k words
+filters.sortColumn = .wordCount
+filters.sortDirection = .descending
+let results = try await AO3.searchWork(query: "coffee shop", filters: filters)
+
+// Search by fandom and characters
+var filters = AO3SearchFilters()
+filters.fandomNames = "Harry Potter"
+filters.characterNames = "Harry Potter"
+filters.relationshipNames = "Harry Potter/Ginny Weasley"
+filters.categories = [.fm]
+filters.ratings = [.general, .teenAndUp]
+let results = try await AO3.searchWork(query: "", filters: filters)
+
+// Complex search with many filters
+var filters = AO3SearchFilters()
+filters.ratings = [.teenAndUp]
+filters.warnings = [.noneApply, .violence]
+filters.wordCount = ">5000"
+filters.complete = .complete
+filters.sortColumn = .kudos
+filters.sortDirection = .descending
+let results = try await AO3.searchWork(query: "adventure", filters: filters)
+
+// Crossovers only
+var filters = AO3SearchFilters()
+filters.crossover = .only
+filters.ratings = [.general, .teenAndUp]
+let results = try await AO3.searchWork(query: "", filters: filters)
+
+// Single chapter/oneshots
+var filters = AO3SearchFilters()
+filters.singleChapter = true
+filters.complete = .complete
+let results = try await AO3.searchWork(query: "oneshot", filters: filters)
+
+// Popular works (minimum kudos)
+var filters = AO3SearchFilters()
+filters.kudosCount = ">100"
+filters.sortColumn = .kudos
+filters.sortDirection = .descending
+let results = try await AO3.searchWork(query: "popular", filters: filters)
+```
+
+**Available Filter Options:**
+
+- **Completion Status**: `.all`, `.complete`, `.incomplete`
+- **Crossover**: `.include`, `.exclude`, `.only`
+- **Sort Columns**: `.bestMatch`, `.author`, `.title`, `.datePosted`, `.dateUpdated`, `.wordCount`, `.hits`, `.kudos`, `.comments`, `.bookmarks`
+- **Sort Direction**: `.ascending`, `.descending`
+- **Numeric Ranges** (word count, kudos, hits, etc.): `">1000"`, `"<5000"`, `"1000-5000"`, `"=2500"`
+
+#### Fluent Search API
+
+Build searches declaratively with a fluent interface:
+
+```swift
+// Simple fluent search
 let results = try await AO3.search()
-    .term("coffee shop AU")
-    .rating(.general)
-    .warning(.noneApply)
+    .term("coffee shop")
+    .AO3Rating(.general)
+    .execute()
+
+// Advanced fluent search
+let results = try await AO3.search()
+    .term("romance")
+    .fandom("Harry Potter")
+    .characters("Harry Potter")
+    .ratings([.general, .teenAndUp])
+    .complete(.complete)
+    .wordCount("1000-10000")
+    .sortBy(.kudos, direction: .descending)
+    .execute()
+
+// Search for completed works with high kudos
+let popular = try await AO3.search()
+    .term("adventure")
+    .complete(.complete)
+    .minKudos(100)
+    .sortBy(.kudos)
+    .execute()
+
+// Search for single chapter fics
+let oneshots = try await AO3.search()
+    .singleChapter(true)
+    .wordCount("5000-15000")
+    .ratings([.general, .teenAndUp])
     .execute()
 ```
 
@@ -188,6 +292,78 @@ let longExplicitFics = results
 let url = "https://archiveofourown.org/works/68352911"
 if let workID = url.ao3WorkID {
     let work = try await AO3.getWork(workID)
+}
+```
+
+### Caching
+
+AO3Kit includes optional caching to avoid refetching data you've already loaded. This is perfect for apps where users navigate back and forth between chapters.
+
+#### Memory Cache (In-Memory)
+
+```swift
+// Configure at app startup
+AO3.configure(cache: AO3MemoryCache(
+    maxWorks: 100,       // Max works to cache
+    maxChapters: 500,    // Max chapters to cache
+    maxUsers: 100,       // Max users to cache
+    ttl: 3600            // Time to live: 1 hour
+))
+
+// Now use the API normally - caching happens automatically!
+let work = try await AO3.getWork(123)
+let chapter = try await work.getChapter(456)  // Fetches from network
+
+// Navigate away and come back
+let chapterAgain = try await work.getChapter(456)  // Returns instantly from cache!
+```
+
+#### Disk Cache (Persistent)
+
+```swift
+// Configure disk cache for persistence between app launches
+let diskCache = try AO3DiskCache(
+    directory: nil,  // Uses system cache directory
+    ttl: 86400       // 24 hours
+)
+AO3.configure(cache: diskCache)
+
+// Works the same way, but survives app restarts
+```
+
+#### Custom Cache
+
+Implement your own cache backend:
+
+```swift
+class MyDatabaseCache: AO3CacheProtocol {
+    func getWork(_ id: Int) async -> AO3Work? {
+        // Load from your database
+    }
+
+    func setWork(_ work: AO3Work) async {
+        // Save to your database
+    }
+
+    // ... implement other methods
+}
+
+AO3.configure(cache: MyDatabaseCache())
+```
+
+#### Without Cache (Default)
+
+```swift
+// No configuration needed - works as before
+// Every request fetches from network
+let work = try await AO3.getWork(123)
+```
+
+#### Clear Cache
+
+```swift
+if let cache = AO3.cache as? AO3MemoryCache {
+    await cache.clear()
 }
 ```
 
@@ -305,10 +481,6 @@ Contains user profile information:
 - `imageURL`: Profile image URL
 - `fandoms`: Array of user's fandoms
 - `recentWorks`: Array of recent work IDs
-
-## License
-
-This project is licensed under the GPL-3.0 License - see the original [ao3-java](https://github.com/glorantq/ao3-java) repository for details.
 
 ## Credits
 
