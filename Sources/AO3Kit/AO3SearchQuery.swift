@@ -44,10 +44,10 @@ public struct AO3SearchQuery {
         return query
     }
 
-    /// Set the AO3Rating filter (simple search - backward compatible)
-    public func AO3Rating(_ rating: AO3Rating) -> AO3SearchQuery {
+    /// Set the rating filter (only one rating can be selected)
+    public func rating(_ rating: AO3Rating) -> AO3SearchQuery {
         var query = self
-        query.filters.ratings.insert(rating)
+        query.filters.rating = rating
         return query
     }
 
@@ -55,14 +55,6 @@ public struct AO3SearchQuery {
     public func warnings(_ warnings: Set<AO3Warning>) -> AO3SearchQuery {
         var query = self
         query.filters.warnings = warnings
-        query.useAdvancedSearch = true
-        return query
-    }
-
-    /// Add multiple ratings (advanced search)
-    public func ratings(_ ratings: Set<AO3Rating>) -> AO3SearchQuery {
-        var query = self
-        query.filters.ratings = ratings
         query.useAdvancedSearch = true
         return query
     }
@@ -177,11 +169,11 @@ public struct AO3SearchQuery {
         let queryString = queryTerms.joined(separator: " ")
 
         // If using advanced search or any filters are set, use advanced search
-        if useAdvancedSearch || !filters.ratings.isEmpty || !filters.warnings.isEmpty {
+        if useAdvancedSearch || filters.rating != nil || !filters.warnings.isEmpty {
             return try await AO3.searchWork(query: queryString, filters: filters)
         } else {
             // Fall back to simple search for backward compatibility
-            return try await AO3.searchWork(query: queryString, warnings: [], ratings: [])
+            return try await AO3.searchWork(query: queryString, warnings: [], rating: nil)
         }
     }
 }

@@ -91,16 +91,16 @@ public struct AO3 {
     /// - Parameters:
     ///   - query: The search query
     ///   - warnings: Optional set of warning filters
-    ///   - ratings: Optional set of rating filters
+    ///   - rating: Optional rating filter (only one can be selected)
     /// - Returns: Array of AO3Work objects matching the search criteria
     /// - Throws: AO3Exception if the search fails
     public static func searchWork(
         query: String,
         warnings: Set<AO3Warning> = [],
-        ratings: Set<AO3Rating> = []
+        rating: AO3Rating? = nil
     ) async throws -> [AO3Work] {
         do {
-            return try await performSearch(query: query, warnings: warnings, ratings: ratings)
+            return try await performSearch(query: query, warnings: warnings, rating: rating)
         } catch let error as AO3Exception {
             throw error
         } catch {
@@ -130,28 +130,14 @@ public struct AO3 {
     private static func performSearch(
         query: String,
         warnings: Set<AO3Warning>,
-        ratings: Set<AO3Rating>
+        rating: AO3Rating?
     ) async throws -> [AO3Work] {
-        var urlString = "https://archiveofourown.org/works/search?utf8=%E2%9C%93&work_search%5Bquery%5D="
-        urlString += AO3Utils.ao3URLEncode(query)
+        // Use the same format as advanced search for consistency with AO3's actual search URLs
+        var filters = AO3SearchFilters()
+        filters.warnings = warnings
+        filters.rating = rating
 
-        // Add multiple warnings with OR logic
-        if !warnings.isEmpty {
-            urlString += " AND ("
-            let warningStrings = warnings.map { "\"\($0.rawValue.lowercased())\"" }
-            urlString += warningStrings.joined(separator: " OR ")
-            urlString += ")"
-        }
-
-        // Add multiple ratings with OR logic
-        if !ratings.isEmpty {
-            urlString += " AND ("
-            let ratingStrings = ratings.map { "\"\($0.rawValue.lowercased())\"" }
-            urlString += ratingStrings.joined(separator: " OR ")
-            urlString += ")"
-        }
-
-        return try await executeSearch(urlString: urlString)
+        return try await performAdvancedSearch(query: query, filters: filters)
     }
 
     private static func performAdvancedSearch(

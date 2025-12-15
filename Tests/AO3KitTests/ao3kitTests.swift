@@ -163,7 +163,7 @@ func testSearchWithRatingFilter() async throws {
     let results = try await AO3.searchWork(
         query: "friendship",
         warnings: [],
-        ratings: [.general]
+        rating: .general
     )
 
     // Search should complete without errors (results may be empty depending on AO3's search behavior)
@@ -180,7 +180,7 @@ func testSearchWithWarningFilter() async throws {
     let results = try await AO3.searchWork(
         query: "fluff",
         warnings: [.noneApply],
-        ratings: []
+        rating: nil
     )
 
     // Search should complete without errors (results may be empty depending on AO3's search behavior)
@@ -192,7 +192,7 @@ func testSearchWithBothFilters() async throws {
     let results = try await AO3.searchWork(
         query: "hurt/comfort",
         warnings: [.noneApply],
-        ratings: [.teenAndUp]
+        rating: .teenAndUp
     )
 
     // Should complete successfully (may or may not have results depending on query)
@@ -216,11 +216,11 @@ func testBasicSearchByAuthor() async throws {
     }
 }
 
-@Test("Advanced search with filters - ratings and warnings")
+@Test("Advanced search with filters - rating and warnings")
 func testAdvancedSearchWithRatingsAndWarnings() async throws {
     // Create filters for Teen rating and specific warnings
     var filters = AO3SearchFilters()
-    filters.ratings = [.teenAndUp]
+    filters.rating = .teenAndUp
     filters.warnings = [.noneApply, .violence]
 
     let results = try await AO3.searchWork(query: "Testing", filters: filters)
@@ -238,7 +238,7 @@ func testAdvancedSearchWithRatingsAndWarnings() async throws {
 func testAdvancedSearchCompleteStatus() async throws {
     var filters = AO3SearchFilters()
     filters.complete = .complete
-    filters.ratings = [.general, .teenAndUp]
+    filters.rating = .general
 
     let results = try await AO3.searchWork(query: "friendship", filters: filters)
 
@@ -261,7 +261,7 @@ func testAdvancedSearchWordCount() async throws {
 func testAdvancedSearchWithFandom() async throws {
     var filters = AO3SearchFilters()
     filters.fandomNames = "Harry Potter"
-    filters.ratings = [.general]
+    filters.rating = .general
 
     let results = try await AO3.searchWork(query: "", filters: filters)
 
@@ -296,7 +296,7 @@ func testAdvancedSearchKudosCount() async throws {
 func testAdvancedSearchCrossover() async throws {
     var filters = AO3SearchFilters()
     filters.crossover = .only  // Only crossovers
-    filters.ratings = [.general, .teenAndUp]
+    filters.rating = .general
 
     let results = try await AO3.searchWork(query: "", filters: filters)
 
@@ -318,7 +318,7 @@ func testAdvancedSearchSingleChapter() async throws {
 func testAdvancedSearchMultipleCategories() async throws {
     var filters = AO3SearchFilters()
     filters.categories = [.mm, .ff]  // M/M or F/F
-    filters.ratings = [.mature, .explicit]
+    filters.rating = .mature
 
     let results = try await AO3.searchWork(query: "romance", filters: filters)
 
@@ -367,7 +367,7 @@ func testAdvancedSearchSorting() async throws {
 func testComplexAdvancedSearch() async throws {
     // Replicate the user's complex query
     var filters = AO3SearchFilters()
-    filters.ratings = [.teenAndUp]
+    filters.rating = .teenAndUp
     filters.warnings = [.noneApply, .violence]
     filters.wordCount = ">5000"
     filters.complete = .complete
@@ -511,7 +511,7 @@ func testWorkConvenienceProperties() async throws {
 func testFluentSearchAPI() async throws {
     let results = try await AO3.search()
         .term("coffee shop")
-        .AO3Rating(.general)
+        .rating(.general)
         .execute()
 
     #expect(results.count >= 0, "Fluent search should return results")

@@ -48,7 +48,7 @@ public struct AO3SearchFilters {
 
     // Work Tags
     public var fandomNames: String?
-    public var ratings: Set<AO3Rating>
+    public var rating: AO3Rating?  // Only one rating can be selected at a time
     public var warnings: Set<AO3Warning>
     public var categories: Set<AO3Category>
     public var characterNames: String?
@@ -75,7 +75,7 @@ public struct AO3SearchFilters {
         wordCount: String? = nil,
         languageID: String? = nil,
         fandomNames: String? = nil,
-        ratings: Set<AO3Rating> = [],
+        rating: AO3Rating? = nil,
         warnings: Set<AO3Warning> = [],
         categories: Set<AO3Category> = [],
         characterNames: String? = nil,
@@ -97,7 +97,7 @@ public struct AO3SearchFilters {
         self.wordCount = wordCount
         self.languageID = languageID
         self.fandomNames = fandomNames
-        self.ratings = ratings
+        self.rating = rating
         self.warnings = warnings
         self.categories = categories
         self.characterNames = characterNames
@@ -171,13 +171,11 @@ public struct AO3SearchFilters {
             params.append("work_search%5Bfandom_names%5D=")
         }
 
-        // Ratings - these use IDs
+        // Rating - only one can be selected
         // General = 10, Teen = 11, Mature = 12, Explicit = 13, Not Rated = 9
-        if !ratings.isEmpty {
-            for rating in ratings {
-                let ratingID = getRatingID(rating)
-                params.append("work_search%5Brating_ids%5D=\(ratingID)")
-            }
+        if let rating = rating {
+            let ratingID = getRatingID(rating)
+            params.append("work_search%5Brating_ids%5D=\(ratingID)")
         }
 
         // Warnings - these use IDs and array notation

@@ -146,9 +146,9 @@ var filters = AO3SearchFilters()
 filters.creators = "astolat"
 let works = try await AO3.searchWork(query: "", filters: filters)
 
-// Search with ratings and warnings
+// Search with rating and warnings (note: only one rating can be selected)
 var filters = AO3SearchFilters()
-filters.ratings = [.teenAndUp]
+filters.rating = .teenAndUp
 filters.warnings = [.noneApply, .violence]
 let results = try await AO3.searchWork(query: "Testing", filters: filters)
 
@@ -165,12 +165,12 @@ filters.fandomNames = "Harry Potter"
 filters.characterNames = "Harry Potter"
 filters.relationshipNames = "Harry Potter/Ginny Weasley"
 filters.categories = [.fm]
-filters.ratings = [.general, .teenAndUp]
+filters.rating = .general
 let results = try await AO3.searchWork(query: "", filters: filters)
 
 // Complex search with many filters
 var filters = AO3SearchFilters()
-filters.ratings = [.teenAndUp]
+filters.rating = .teenAndUp
 filters.warnings = [.noneApply, .violence]
 filters.wordCount = ">5000"
 filters.complete = .complete
@@ -181,7 +181,7 @@ let results = try await AO3.searchWork(query: "adventure", filters: filters)
 // Crossovers only
 var filters = AO3SearchFilters()
 filters.crossover = .only
-filters.ratings = [.general, .teenAndUp]
+filters.rating = .general
 let results = try await AO3.searchWork(query: "", filters: filters)
 
 // Single chapter/oneshots
@@ -222,7 +222,7 @@ let results = try await AO3.search()
     .term("romance")
     .fandom("Harry Potter")
     .characters("Harry Potter")
-    .ratings([.general, .teenAndUp])
+    .rating(.general)  // Only one rating can be selected
     .complete(.complete)
     .wordCount("1000-10000")
     .sortBy(.kudos, direction: .descending)
@@ -240,7 +240,7 @@ let popular = try await AO3.search()
 let oneshots = try await AO3.search()
     .singleChapter(true)
     .wordCount("5000-15000")
-    .ratings([.general, .teenAndUp])
+    .rating(.teenAndUp)
     .execute()
 ```
 
