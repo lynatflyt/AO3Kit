@@ -7,11 +7,15 @@ A Swift library for accessing data from [Archive of Our Own (AO3)](https://archi
 ## Features
 
 - Retrieve work metadata (title, authors, ratings, statistics, etc.)
-- Search for works with optional filtering by rating and content warnings
-- Get chapter content including notes and summaries
+- Advanced search with filters (rating, warnings, word count, completion status, etc.)
+- Get chapter content with **rich text formatting** (bold, italic, colors)
+  - Plain text access via `.content`
+  - HTML access via `.contentHTML`
+  - `AttributedString` support for native iOS/macOS rendering
 - Access user profile information
 - Full async/await support
 - Codable support for JSON serialization
+- Built-in caching (memory and disk)
 
 ## Requirements
 
@@ -66,12 +70,24 @@ let chapter = try await work.getChapter(12345678)
 
 print("Chapter Title: \(chapter.title)")
 print("Summary: \(chapter.summary)")
-print("Content: \(chapter.content)")
+print("Content: \(chapter.content)") // Plain text content
 
 // Author's notes
 for note in chapter.notes {
     print("Note: \(note)")
 }
+
+// Get formatted content with AttributedString (iOS 15+, macOS 12+)
+// This preserves bold, italic, and colored text from AO3
+let attributedContent = try chapter.getAttributedContent()
+// Use attributedContent in your UI for rich text display
+
+// Access raw HTML if you need custom rendering
+print("HTML: \(chapter.contentHTML)")
+
+// Convert any HTML to AttributedString
+let customHTML = "<em>italic</em> and <strong>bold</strong> and <span class=\"custom\">colored</span>"
+let customAttributed = try AO3Chapter.htmlToAttributedString(customHTML)
 ```
 
 ### Getting User Information
@@ -259,6 +275,54 @@ let comments = work.commentsCount  // Int?
 // Quick access to chapters
 let firstChapter = try await work.getFirstChapter()
 let allChapters = try await work.getAllChapters()
+```
+
+### Mock Data for Testing & Previews
+
+AO3Kit provides realistic mock data for testing and SwiftUI previews without making network requests:
+
+```swift
+import AO3Kit
+
+// Use sample works
+let work = AO3MockData.sampleWork1  // Completed adventure story
+let work2 = AO3MockData.sampleWork2 // In-progress coffee shop AU
+let work3 = AO3MockData.sampleWork3 // Mature-rated work
+
+// Use sample chapters with formatting
+let chapter = AO3MockData.sampleChapter1         // Plain text
+let formattedChapter = AO3MockData.sampleChapterFormatted  // With colors/italics
+
+// Use sample users
+let user = AO3MockData.sampleUser1
+
+// Collections for lists
+let works = AO3MockData.sampleWorks
+let chapters = AO3MockData.sampleChapters
+let users = AO3MockData.sampleUsers
+```
+
+#### SwiftUI Preview Example
+
+```swift
+import SwiftUI
+import AO3Kit
+
+struct WorkDetailView: View {
+    let work: AO3Work
+    
+    var body: some View {
+        VStack(alignment: .leading) {
+            Text(work.title).font(.title)
+            Text("by \(work.authors.map(\.username).joined(separator: ", "))")
+            Text("\(work.wordCount ?? 0) words")
+        }
+    }
+}
+
+#Preview {
+    WorkDetailView(work: AO3MockData.previewWork)
+}
 ```
 
 #### Collection Extensions

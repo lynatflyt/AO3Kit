@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import SwiftSoup
 @testable import AO3Kit
 
 // MARK: - Work Tests
@@ -705,4 +706,120 @@ func testDiskCache() async throws {
     await diskCache.clear()
     try? FileManager.default.removeItem(at: tempDir)
     AO3.configure(cache: nil)
+}
+
+@available(macOS 12.0, iOS 15.0, *)
+@Test("AttributedString conversion preserves formatting")
+func testAttributedStringConversion() async throws {
+    // Work 74838221 has colored and italicized text
+    let work = try await AO3.getWork(74838221)
+    let chapter = try await work.getFirstChapter()
+
+    // Verify we have HTML content
+    #expect(!chapter.contentHTML.isEmpty, "Chapter should have HTML content")
+
+    // Convert to AttributedString
+    let attributedContent = try chapter.getAttributedContent()
+
+    // Verify we got content
+    #expect(!attributedContent.characters.isEmpty, "AttributedString should have content")
+
+    print("\n=== ATTRIBUTED STRING OUTPUT ===")
+    print(String(attributedContent.characters.prefix(500)))
+    print("\n=== END ===\n")
+
+    // Check that plain text matches
+    let plainFromAttributed = String(attributedContent.characters)
+    #expect(plainFromAttributed.contains("Come oooooon"), "Should contain expected text")
+
+    // Test HTML conversion with known formatting
+    let testHTML = "<em>italic text</em> and <strong>bold text</strong>"
+    let testAttributed = try AO3Chapter.htmlToAttributedString(testHTML)
+    #expect(!testAttributed.characters.isEmpty, "Should convert HTML to AttributedString")
+
+    print("\n=== TEST HTML CONVERSION ===")
+    print("Input: \(testHTML)")
+    print("Output: \(String(testAttributed.characters))")
+    print("\n=== END ===\n")
+}
+
+@available(macOS 12.0, iOS 15.0, *)
+@Test("AttributedString handles colored text spans")
+func testColoredSpanConversion() async throws {
+    // Test with custom span classes like AO3 uses for colored dialogue
+    let htmlWithSpans = """
+    <span class="FakeIDCallie">"Hello there!"</span> she said.
+    <span class="FakeIDYou">"Hi!"</span> you replied.
+    """
+
+    let attributed = try AO3Chapter.htmlToAttributedString(htmlWithSpans)
+
+    #expect(!attributed.characters.isEmpty, "Should have content")
+    let plainText = String(attributed.characters)
+    #expect(plainText.contains("Hello there!"), "Should preserve text content")
+    #expect(plainText.contains("Hi!"), "Should preserve all dialogue")
+
+    print("\n=== COLORED SPAN TEST ===")
+    print("HTML: \(htmlWithSpans)")
+    print("Plain: \(plainText)")
+    print("\n=== END ===\n")
+}
+
+// MARK: - Mock Data Tests
+
+@available(macOS 12.0, iOS 15.0, *)
+@Test("Mock data works are valid")
+func testMockWorks() throws {
+    let work1 = AO3MockData.sampleWork1
+    #expect(work1.id == 1000001, "Work should have correct ID")
+    #expect(work1.title == "The Adventure Begins", "Work should have title")
+    #expect(!work1.authors.isEmpty, "Work should have authors")
+    #expect(work1.rating == .teenAndUp, "Work should have correct rating")
+
+    let work2 = AO3MockData.sampleWork2
+    #expect(work2.id == 1000002, "Work 2 should have correct ID")
+    #expect(work2.title == "Coffee Shop Chronicles", "Work 2 should have title")
+
+    #expect(AO3MockData.sampleWorks.count == 3, "Should have 3 sample works")
+}
+
+@available(macOS 12.0, iOS 15.0, *)
+@Test("Mock data chapters are valid")
+func testMockChapters() throws {
+    let chapter1 = AO3MockData.sampleChapter1
+    #expect(chapter1.id == 2000001, "Chapter should have correct ID")
+    #expect(chapter1.title == "Chapter 1: New Beginnings", "Chapter should have title")
+    #expect(!chapter1.content.isEmpty, "Chapter should have content")
+
+    let formattedChapter = AO3MockData.sampleChapterFormatted
+    #expect(!formattedChapter.contentHTML.isEmpty, "Formatted chapter should have HTML")
+
+    // Test AttributedString conversion on mock data
+    let attributed = try formattedChapter.getAttributedContent()
+    #expect(!attributed.characters.isEmpty, "Should convert mock HTML to AttributedString")
+
+    #expect(AO3MockData.sampleChapters.count == 3, "Should have 3 sample chapters")
+}
+
+@available(macOS 12.0, iOS 15.0, *)
+@Test("Mock data users are valid")
+func testMockUsers() throws {
+    let user1 = AO3MockData.sampleUser1
+    #expect(user1.username == "AuthorOne", "User should have username")
+    #expect(!user1.fandoms.isEmpty, "User should have fandoms")
+
+    #expect(AO3MockData.sampleUsers.count == 2, "Should have 2 sample users")
+}
+
+@available(macOS 12.0, iOS 15.0, *)
+@Test("Mock data preview helpers work")
+func testPreviewHelpers() throws {
+    let previewWork = AO3MockData.previewWork
+    #expect(previewWork.id > 0, "Preview work should be valid")
+
+    let previewChapter = AO3MockData.previewChapter
+    #expect(!previewChapter.content.isEmpty, "Preview chapter should have content")
+
+    let previewUser = AO3MockData.previewUser
+    #expect(!previewUser.username.isEmpty, "Preview user should have username")
 }
