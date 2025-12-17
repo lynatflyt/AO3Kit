@@ -70,7 +70,8 @@ public class AO3Chapter: AO3Data, @unchecked Sendable {
             let contentArray = try paragraphs.map { try $0.text() }
             content = contentArray.joined(separator: "\n")
 
-            let htmlArray = try paragraphs.map { try $0.html() }
+            // Preserve <p> tags by using outerHtml() instead of html()
+            let htmlArray = try paragraphs.map { try $0.outerHtml() }
             contentHTML = htmlArray.joined(separator: "\n")
         }
 

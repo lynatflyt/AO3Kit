@@ -18,6 +18,7 @@ public class AO3Work: AO3Data, @unchecked Sendable {
     public private(set) var published: Date = Date()
     public private(set) var updated: Date = Date()
     public private(set) var chapters: [Int: String] = [:]
+    public private(set) var workSkinCSS: String? = nil
 
     internal init(id: Int) async throws {
         self.id = id
@@ -29,7 +30,7 @@ public class AO3Work: AO3Data, @unchecked Sendable {
     private enum CodingKeys: String, CodingKey {
         case id, title, authors, archiveWarning, rating, category, fandom
         case relationships, characters, additionalTags, language, stats
-        case published, updated, chapters
+        case published, updated, chapters, workSkinCSS
     }
 
     required public init(from decoder: Decoder) throws {
@@ -49,6 +50,7 @@ public class AO3Work: AO3Data, @unchecked Sendable {
         published = try container.decode(Date.self, forKey: .published)
         updated = try container.decode(Date.self, forKey: .updated)
         chapters = try container.decode([Int: String].self, forKey: .chapters)
+        workSkinCSS = try container.decodeIfPresent(String.self, forKey: .workSkinCSS)
         super.init()
     }
 
@@ -69,6 +71,7 @@ public class AO3Work: AO3Data, @unchecked Sendable {
         try container.encode(published, forKey: .published)
         try container.encode(updated, forKey: .updated)
         try container.encode(chapters, forKey: .chapters)
+        try container.encodeIfPresent(workSkinCSS, forKey: .workSkinCSS)
     }
 
     private func loadWorkData() async throws {
@@ -171,6 +174,13 @@ public class AO3Work: AO3Data, @unchecked Sendable {
             tempChapters[id] = title
         }
         chapters = tempChapters
+
+        // Parse work skin CSS if present
+        if let styleTag = try document.select("style").first(where: { element in
+            (try? element.html().contains("#workskin")) ?? false
+        }) {
+            workSkinCSS = try styleTag.html()
+        }
     }
 
     internal override func buildURL() -> String {

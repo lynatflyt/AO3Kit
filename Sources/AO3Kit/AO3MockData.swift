@@ -136,13 +136,23 @@ public struct AO3MockData {
             summary: "The truth comes out.",
             content: "\"You lied to me,\" Character F said quietly.\n\n\"I had to,\" Character G replied. \"You wouldn't have understood.\"\n\n\"Try me.\"\n\nThere was a long pause before Character G spoke again. \"I was trying to protect you.\"",
             contentHTML: """
-            <span class="SpeakerF">"You <em>lied</em> to me,"</span> Character F said quietly.
+            <h3>The Confrontation</h3>
 
-            <span class="SpeakerG">"I had to,"</span> Character G replied. <span class="SpeakerG">"You wouldn't have understood."</span>
+            <p><span class="SpeakerF">"You <em>lied</em> to me,"</span> Character F said quietly.</p>
 
-            <span class="SpeakerF">"<strong>Try me.</strong>"</span>
+            <p><span class="SpeakerG">"I had to,"</span> Character G replied. <span class="SpeakerG">"You wouldn't have understood."</span></p>
 
-            There was a long pause before Character G spoke again. <span class="SpeakerG">"I was trying to <em>protect</em> you."</span>
+            <p><span class="SpeakerF">"<strong>Try me.</strong>"</span></p>
+
+            <p>There was a long pause before Character G spoke again. <span class="SpeakerG">"I was trying to <em>protect</em> you."</span></p>
+
+            <h4>What Happened Next</h4>
+
+            <p>The silence stretched between them, heavy and oppressive. Character F's eyes searched Character G's face, looking for <strong>any sign</strong> of the truth.</p>
+
+            <p>"You don't trust me," Character F finally said, their voice barely above a whisper.</p>
+
+            <p><span class="SpeakerG">"I trust you with my <em>life</em>,"</span> Character G responded. <span class="SpeakerG">"That's exactly why I did what I did."</span></p>
             """,
             notes: ["TW: Emotional confrontation", "Next chapter coming soon!"]
         )
