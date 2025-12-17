@@ -32,7 +32,7 @@ AO3KitUI is included in the AO3Kit package. Add it to your project using Swift P
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/yourusername/ao3kit.git", from: "1.0.0")
+    .package(url: "https://github.com/lynatflyt/ao3kit.git", from: "1.0.0")
 ]
 ```
 
@@ -45,7 +45,7 @@ import AO3KitUI
 
 ## Requirements
 
-- iOS 16.0+ / macOS 13.0+ / tvOS 16.0+ / watchOS 9.0+
+- iOS 17.0+ / macOS 13.0+ / tvOS 17.0+ / watchOS 9.0+
 - Swift 5.9+
 - SwiftUI
 

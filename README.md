@@ -19,7 +19,7 @@ A Swift library for accessing data from [Archive of Our Own (AO3)](https://archi
 
 ## Requirements
 
-- iOS 15.0+ / macOS 12.0+ / tvOS 15.0+ / watchOS 8.0+
+- iOS 17.0+ / macOS 12.0+ / tvOS 17.0+ / watchOS 8.0+
 - Swift 5.9+
 
 ## Installation
@@ -30,12 +30,12 @@ Add the following to your `Package.swift` file:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/yourusername/ao3kit.git", from: "1.0.0")
+    .package(url: "https://github.com/lynatflyt/ao3kit.git", from: "1.0.0")
 ]
 ```
 
 Or add it directly in Xcode:
-1. File � Add Package Dependencies
+1. File -> Add Package Dependencies
 2. Enter the repository URL
 3. Select your desired version
 
