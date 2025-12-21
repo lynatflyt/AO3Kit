@@ -734,7 +734,7 @@ func testAttributedStringConversion() async throws {
 
     // Test HTML conversion with known formatting
     let testHTML = "<em>italic text</em> and <strong>bold text</strong>"
-    let testAttributed = try AO3Chapter.htmlToAttributedString(testHTML)
+    let testAttributed = try AO3ChapterAttributedStringConverter.convert(testHTML)
     #expect(!testAttributed.characters.isEmpty, "Should convert HTML to AttributedString")
 
     print("\n=== TEST HTML CONVERSION ===")
@@ -752,7 +752,7 @@ func testColoredSpanConversion() async throws {
     <span class="FakeIDYou">"Hi!"</span> you replied.
     """
 
-    let attributed = try AO3Chapter.htmlToAttributedString(htmlWithSpans)
+    let attributed = try AO3ChapterAttributedStringConverter.convert(htmlWithSpans)
 
     #expect(!attributed.characters.isEmpty, "Should have content")
     let plainText = String(attributed.characters)
