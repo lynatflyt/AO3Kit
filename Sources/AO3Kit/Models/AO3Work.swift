@@ -16,7 +16,7 @@ public class AO3Work: AO3Data, @unchecked Sendable {
     public internal(set) var stats: [String: String] = [:]
     public internal(set) var published: Date = Date()
     public internal(set) var updated: Date = Date()
-    public internal(set) var chapters: [Int: String] = [:]
+    public internal(set) var chapters: [AO3ChapterInfo] = []
     public internal(set) var workSkinCSS: String? = nil
 
     internal init(id: Int) async throws {
@@ -48,7 +48,7 @@ public class AO3Work: AO3Data, @unchecked Sendable {
         stats = try container.decode([String: String].self, forKey: .stats)
         published = try container.decode(Date.self, forKey: .published)
         updated = try container.decode(Date.self, forKey: .updated)
-        chapters = try container.decode([Int: String].self, forKey: .chapters)
+        chapters = try container.decode([AO3ChapterInfo].self, forKey: .chapters)
         workSkinCSS = try container.decodeIfPresent(String.self, forKey: .workSkinCSS)
         super.init()
     }
@@ -88,9 +88,20 @@ public class AO3Work: AO3Data, @unchecked Sendable {
     /// - Returns: AO3Chapter object
     /// - Throws: AO3Exception if chapter not found
     public func getChapter(_ chapterID: Int) async throws -> AO3Chapter {
-        guard chapters.keys.contains(chapterID) else {
+        guard chapters.contains(where: { $0.id == chapterID }) else {
             throw AO3Exception.chapterNotFound(chapterID)
         }
         return try await AO3.getChapter(workID: id, chapterID: chapterID)
+    }
+
+    /// Returns an AO3Chapter based on chapter number (1-indexed)
+    /// - Parameter number: The chapter number (1 for first chapter, 2 for second, etc.)
+    /// - Returns: AO3Chapter object
+    /// - Throws: AO3Exception if chapter not found
+    public func getChapter(number: Int) async throws -> AO3Chapter {
+        guard let chapterInfo = chapters.first(where: { $0.number == number }) else {
+            throw AO3Exception.chapterNotFound(-1)
+        }
+        return try await AO3.getChapter(workID: id, chapterID: chapterInfo.id)
     }
 }

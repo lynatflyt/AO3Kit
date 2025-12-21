@@ -115,19 +115,30 @@ internal struct AO3WorkParser {
         return (published, updated)
     }
 
-    private func parseChapters(from document: Document, workID: Int) throws -> [Int: String] {
-        var tempChapters: [Int: String] = [:]
+    private func parseChapters(from document: Document, workID: Int) throws -> [AO3ChapterInfo] {
+        var tempChapters: [AO3ChapterInfo] = []
 
         if let chapterSelect = try? document.select("#selected_id").first() {
             let options = try chapterSelect.select("option")
-            for option in options {
+            for (index, option) in options.enumerated() {
                 if let chapterID = Int(try option.attr("value")) {
                     let chapterTitle = try option.html()
-                    tempChapters[chapterID] = chapterTitle
+                    // Chapter number is 1-indexed (first option is chapter 1)
+                    let chapterNumber = index + 1
+                    tempChapters.append(AO3ChapterInfo(
+                        id: chapterID,
+                        number: chapterNumber,
+                        title: chapterTitle
+                    ))
                 }
             }
         } else {
-            tempChapters[workID] = try parseTitle(from: document)
+            // Single-chapter work (no dropdown)
+            tempChapters.append(AO3ChapterInfo(
+                id: workID,
+                number: 1,
+                title: try parseTitle(from: document)
+            ))
         }
 
         return tempChapters

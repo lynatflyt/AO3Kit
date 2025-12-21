@@ -40,10 +40,11 @@ func testWorkHasChapters() async throws {
 
     #expect(!work.chapters.isEmpty, "Work should have at least one chapter")
 
-    // Verify chapter IDs and titles are valid
-    for (chapterID, chapterTitle) in work.chapters {
-        #expect(chapterID > 0, "Chapter ID should be positive")
-        #expect(!chapterTitle.isEmpty, "Chapter title should not be empty")
+    // Verify chapter IDs, numbers, and titles are valid
+    for chapterInfo in work.chapters {
+        #expect(chapterInfo.id > 0, "Chapter ID should be positive")
+        #expect(chapterInfo.number > 0, "Chapter number should be positive")
+        #expect(!chapterInfo.title.isEmpty, "Chapter title should not be empty")
     }
 }
 
@@ -65,15 +66,15 @@ func testGetChapter() async throws {
     let work = try await AO3.getWork(68352911)
 
     // Get the first chapter
-    guard let firstChapterID = work.chapters.keys.sorted().first else {
+    guard let firstChapter = work.chapters.first else {
         Issue.record("No chapters found in work")
         return
     }
 
-    let chapter = try await work.getChapter(firstChapterID)
+    let chapter = try await work.getChapter(firstChapter.id)
 
     #expect(chapter.workID == work.id, "Chapter should reference correct work ID")
-    #expect(chapter.id == firstChapterID, "Chapter ID should match")
+    #expect(chapter.id == firstChapter.id, "Chapter ID should match")
     #expect(!chapter.title.isEmpty, "Chapter should have a title")
     #expect(!chapter.content.isEmpty, "Chapter should have content")
 }
@@ -82,12 +83,12 @@ func testGetChapter() async throws {
 func testChapterMetadata() async throws {
     let work = try await AO3.getWork(68352911)
 
-    guard let firstChapterID = work.chapters.keys.sorted().first else {
+    guard let firstChapter = work.chapters.first else {
         Issue.record("No chapters found in work")
         return
     }
 
-    let chapter = try await work.getChapter(firstChapterID)
+    let chapter = try await work.getChapter(firstChapter.id)
 
     // Content should be non-empty
     #expect(chapter.content.count > 0, "Chapter content should not be empty")
@@ -435,12 +436,12 @@ func testWorkJSONDeserialization() async throws {
 func testChapterJSONSerialization() async throws {
     let work = try await AO3.getWork(68352911)
 
-    guard let firstChapterID = work.chapters.keys.sorted().first else {
+    guard let firstChapter = work.chapters.first else {
         Issue.record("No chapters found in work")
         return
     }
 
-    let chapter = try await work.getChapter(firstChapterID)
+    let chapter = try await work.getChapter(firstChapter.id)
     let jsonString = try chapter.toJSON()
 
     #expect(!jsonString.isEmpty, "JSON string should not be empty")
@@ -612,17 +613,17 @@ func testMemoryCacheChapters() async throws {
     AO3.configure(cache: cache)
 
     let work = try await AO3.getWork(68352911)
-    guard let firstChapterID = work.chapters.keys.sorted().first else {
+    guard let firstChapter = work.chapters.first else {
         Issue.record("No chapters found")
         return
     }
 
     // First fetch - should hit network
-    let chapter1 = try await work.getChapter(firstChapterID)
+    let chapter1 = try await work.getChapter(firstChapter.id)
     #expect(!chapter1.content.isEmpty)
 
     // Second fetch - should hit cache
-    let chapter2 = try await work.getChapter(firstChapterID)
+    let chapter2 = try await work.getChapter(firstChapter.id)
     #expect(chapter2.content == chapter1.content, "Cached chapter should match")
 
     // Clean up

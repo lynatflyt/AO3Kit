@@ -54,7 +54,13 @@ internal struct AO3MockDataFactory {
             ],
             "published": published,
             "updated": updated,
-            "chapters": ["\(id)": title]
+            "chapters": [
+                [
+                    "id": id,
+                    "number": 1,
+                    "title": title
+                ]
+            ]
         ]
 
         let data = try JSONSerialization.data(withJSONObject: json)

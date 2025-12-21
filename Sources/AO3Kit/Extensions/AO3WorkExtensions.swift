@@ -45,31 +45,32 @@ extension AO3Work {
         return chapters.count > 0
     }
 
-    /// Get all chapters asynchronously
+    /// Get all chapters asynchronously in order
     public func getAllChapters() async throws -> [AO3Chapter] {
         return try await withThrowingTaskGroup(of: (Int, AO3Chapter).self) { group in
-            for chapterID in chapters.keys {
+            for chapterInfo in chapters {
                 group.addTask {
-                    let chapter = try await self.getChapter(chapterID)
-                    return (chapterID, chapter)
+                    let chapter = try await self.getChapter(chapterInfo.id)
+                    return (chapterInfo.number, chapter)
                 }
             }
 
             var results: [Int: AO3Chapter] = [:]
-            for try await (id, chapter) in group {
-                results[id] = chapter
+            for try await (number, chapter) in group {
+                results[number] = chapter
             }
 
+            // Return chapters sorted by number
             return results.keys.sorted().compactMap { results[$0] }
         }
     }
 
     /// Get the first chapter
     public func getFirstChapter() async throws -> AO3Chapter {
-        guard let firstID = chapters.keys.sorted().first else {
+        guard let first = chapters.first else {
             throw AO3Exception.chapterNotFound(-1)
         }
-        return try await getChapter(firstID)
+        return try await getChapter(first.id)
     }
 }
 
