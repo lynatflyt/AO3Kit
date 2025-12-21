@@ -56,17 +56,21 @@ print("Fandom: \(work.fandom)")
 print("Word Count: \(work.stats["words"] ?? "N/A")")
 print("Kudos: \(work.stats["kudos"] ?? "N/A")")
 
-// Access chapters
-for (chapterID, chapterTitle) in work.chapters.sorted(by: { $0.key < $1.key }) {
-    print("Chapter \(chapterID): \(chapterTitle)")
+// Access chapters (ordered array)
+for chapterInfo in work.chapters {
+    print("Chapter \(chapterInfo.number): \(chapterInfo.title)")
 }
 ```
 
 ### Getting Chapter Content
 
 ```swift
-// Get a specific chapter
+// Get a specific chapter by ID
 let chapter = try await work.getChapter(12345678)
+
+// Or get by chapter number (1-indexed)
+let firstChapter = try await work.getChapter(number: 1)
+let secondChapter = try await work.getChapter(number: 2)
 
 print("Chapter Title: \(chapter.title)")
 print("Summary: \(chapter.summary)")
@@ -84,10 +88,6 @@ let attributedContent = try chapter.getAttributedContent()
 
 // Access raw HTML if you need custom rendering
 print("HTML: \(chapter.contentHTML)")
-
-// Convert any HTML to AttributedString
-let customHTML = "<em>italic</em> and <strong>bold</strong> and <span class=\"custom\">colored</span>"
-let customAttributed = try AO3Chapter.htmlToAttributedString(customHTML)
 ```
 
 ### Getting User Information
@@ -274,7 +274,12 @@ let comments = work.commentsCount  // Int?
 
 // Quick access to chapters
 let firstChapter = try await work.getFirstChapter()
-let allChapters = try await work.getAllChapters()
+let allChapters = try await work.getAllChapters()  // Returns chapters in order
+let chapterCount = work.chapterCount
+
+// Access chapter info
+let firstChapterInfo = work.chapters[0]  // Get first chapter info
+print("Chapter \(firstChapterInfo.number): \(firstChapterInfo.title)")
 ```
 
 ### Mock Data for Testing & Previews
@@ -525,7 +530,15 @@ Contains comprehensive work metadata:
 - `stats`: Dictionary of statistics (words, kudos, hits, etc.)
 - `published`: Publication date
 - `updated`: Last update date
-- `chapters`: Dictionary mapping chapter IDs to titles
+- `chapters`: Ordered array of AO3ChapterInfo (id, number, title)
+- `workSkinCSS`: Custom CSS styling for the work (if any)
+
+### AO3ChapterInfo
+
+Contains chapter metadata in an ordered list:
+- `id`: Chapter ID (unique identifier)
+- `number`: Chapter number (1-indexed, e.g., 1 for first chapter)
+- `title`: Chapter title
 
 ### AO3Chapter
 
@@ -533,7 +546,8 @@ Contains chapter content:
 - `workID`: Parent work ID
 - `id`: Chapter ID
 - `title`: Chapter title
-- `content`: Chapter text content
+- `content`: Plain text content
+- `contentHTML`: Raw HTML content with formatting
 - `notes`: Array of author's notes
 - `summary`: Chapter summary
 
