@@ -4,7 +4,9 @@ import SwiftSoup
 /// Parses AO3 chapter HTML into structured data
 internal struct AO3ChapterParser {
     func parse(document: Document, into chapter: AO3Chapter) throws {
-        chapter.title = try parseTitle(from: document)
+        let (number, title) = try parseChapterInfo(from: document)
+        chapter.number = number
+        chapter.title = title
         chapter.content = try parseContent(from: document)
         chapter.contentHTML = try parseContentHTML(from: document)
         chapter.notes = try parseNotes(from: document)
@@ -13,13 +15,39 @@ internal struct AO3ChapterParser {
 
     // MARK: - Parsing Methods
 
-    private func parseTitle(from document: Document) throws -> String {
-        if let prefaceDiv = try document.select("div.chapter.preface.group").first(),
-           let h3 = try prefaceDiv.select("h3").first() {
-            let ownText = h3.ownText()
-            return ownText.replacingOccurrences(of: ": ", with: "").trimmingCharacters(in: .whitespaces)
+    private func parseChapterInfo(from document: Document) throws -> (number: Int, title: String) {
+        guard let prefaceDiv = try document.select("div.chapter.preface.group").first(),
+              let h3 = try prefaceDiv.select("h3").first() else {
+            return (1, "")
         }
-        return ""
+
+        // Get full text like "Chapter 1: The Text"
+        let fullText = try h3.text().trimmingCharacters(in: .whitespaces)
+
+        // Use regex to extract chapter number and title
+        // Pattern matches "Chapter <number>: <title>" or just "Chapter <number>"
+        let pattern = #"^Chapter\s+(\d+)(?::\s*(.*))?$"#
+        if let regex = try? NSRegularExpression(pattern: pattern, options: []),
+           let match = regex.firstMatch(in: fullText, range: NSRange(fullText.startIndex..., in: fullText)) {
+
+            // Extract chapter number
+            var chapterNumber = 1
+            if let numberRange = Range(match.range(at: 1), in: fullText) {
+                chapterNumber = Int(fullText[numberRange]) ?? 1
+            }
+
+            // Extract title (if present after colon)
+            var chapterTitle = ""
+            if match.numberOfRanges > 2,
+               let titleRange = Range(match.range(at: 2), in: fullText) {
+                chapterTitle = String(fullText[titleRange]).trimmingCharacters(in: .whitespaces)
+            }
+
+            return (chapterNumber, chapterTitle)
+        }
+
+        // Fallback: if pattern doesn't match, return defaults
+        return (1, fullText)
     }
 
     private func parseContent(from document: Document) throws -> String {

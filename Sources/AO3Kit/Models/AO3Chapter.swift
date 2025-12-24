@@ -4,6 +4,7 @@ import Foundation
 public class AO3Chapter: AO3Data, @unchecked Sendable {
     public let workID: Int
     public let id: Int
+    public internal(set) var number: Int = 1
     public internal(set) var title: String = ""
     public internal(set) var content: String = ""
     public internal(set) var contentHTML: String = ""
@@ -18,13 +19,14 @@ public class AO3Chapter: AO3Data, @unchecked Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case workID, id, title, content, contentHTML, notes, summary
+        case workID, id, number, title, content, contentHTML, notes, summary
     }
 
     required public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         workID = try container.decode(Int.self, forKey: .workID)
         id = try container.decode(Int.self, forKey: .id)
+        number = try container.decodeIfPresent(Int.self, forKey: .number) ?? 1
         title = try container.decode(String.self, forKey: .title)
         content = try container.decode(String.self, forKey: .content)
         contentHTML = try container.decodeIfPresent(String.self, forKey: .contentHTML) ?? ""
@@ -37,6 +39,7 @@ public class AO3Chapter: AO3Data, @unchecked Sendable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(workID, forKey: .workID)
         try container.encode(id, forKey: .id)
+        try container.encode(number, forKey: .number)
         try container.encode(title, forKey: .title)
         try container.encode(content, forKey: .content)
         try container.encode(contentHTML, forKey: .contentHTML)

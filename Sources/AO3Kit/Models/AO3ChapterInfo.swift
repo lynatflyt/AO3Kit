@@ -1,7 +1,7 @@
 import Foundation
 
 /// Information about a chapter in a work
-public struct AO3ChapterInfo: Codable, Hashable, Sendable {
+public struct AO3ChapterInfo: Codable, Hashable, Sendable, Identifiable {
     /// The unique chapter ID
     public let id: Int
 

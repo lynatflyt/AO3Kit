@@ -122,9 +122,16 @@ internal struct AO3WorkParser {
             let options = try chapterSelect.select("option")
             for (index, option) in options.enumerated() {
                 if let chapterID = Int(try option.attr("value")) {
-                    let chapterTitle = try option.html()
+                    var chapterTitle = try option.html()
                     // Chapter number is 1-indexed (first option is chapter 1)
                     let chapterNumber = index + 1
+
+                    // Remove the "1. " "2. " etc. prefix from chapter titles
+                    // since we already track the chapter number separately
+                    if let range = chapterTitle.range(of: #"^\d+\.\s+"#, options: .regularExpression) {
+                        chapterTitle.removeSubrange(range)
+                    }
+
                     tempChapters.append(AO3ChapterInfo(
                         id: chapterID,
                         number: chapterNumber,
