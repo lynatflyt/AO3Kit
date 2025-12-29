@@ -17,14 +17,23 @@ AO3KitUI provides powerful SwiftUI components for displaying AO3 fanfiction cont
   - Links, superscript, and subscript
   - Right-to-left text support
 
-- **SwiftUI Native**: Uses pure SwiftUI Text and View composition
-  - Fully adaptive to parent view size
-  - Respects parent font settings (use any font, including New York)
+- **High-Performance UIKit Backend**: Uses UITableView under the hood for buttery-smooth scrolling
+  - No jitter or stutter, even on very long chapters
+  - Efficient cell reuse for minimal memory usage
+  - Position tracking only occurs when scrolling stops
+
+- **SwiftUI Integration**: Seamless integration with SwiftUI apps via UIViewRepresentable
+  - Respects parent font settings
   - Dark mode compatible
+  - Custom color scheme support
   - Accessibility support through SwiftUI
 
+- **Position Tracking**: Built-in reading progress support
+  - Tracks scroll position via binding
+  - Restore reading position on chapter reload
+  - Updates only on scroll end for maximum performance
+
 - **Easy to Use**: Simple API with multiple integration options
-- **Performance Optimized**: Efficient parsing and lazy rendering
 
 ## Installation
 
@@ -45,9 +54,9 @@ import AO3KitUI
 
 ## Requirements
 
-- iOS 17.0+ / macOS 13.0+ / tvOS 17.0+ / watchOS 9.0+
+- iOS 17.0+ / iPadOS 17.0+
 - Swift 5.9+
-- SwiftUI
+- SwiftUI and UIKit
 
 ## Usage
 
@@ -62,93 +71,159 @@ import AO3KitUI
 
 struct ChapterReaderView: View {
     let chapter: AO3Chapter
+    let work: AO3Work
+    @State private var scrollPosition: Int? = nil
 
     var body: some View {
-        AO3ChapterView(chapter: chapter)
-            .padding()
+        AO3ChapterView(
+            chapter: chapter,
+            work: work,
+            topVisibleIndex: $scrollPosition
+        )
     }
 }
 ```
 
-### With Work Skin Support
+### Position Tracking and Restoration
 
-Work skins allow authors to customize colors in their fics. Pass the work's CSS to render custom colors:
+Track reading progress and restore position when returning to a chapter:
 
 ```swift
 struct ChapterReaderView: View {
     let chapter: AO3Chapter
     let work: AO3Work
+    @State private var scrollPosition: Int? = nil
+    let savedPosition: Int? // Load from your persistence layer
 
     var body: some View {
         AO3ChapterView(
             chapter: chapter,
-            workSkinCSS: work.workSkinCSS
+            work: work,
+            topVisibleIndex: $scrollPosition,
+            initialPosition: savedPosition
         )
-        .padding()
+        .onDisappear {
+            // Save scrollPosition to your persistence layer
+            if let position = scrollPosition {
+                saveReadingProgress(position)
+            }
+        }
     }
 }
-
-// Or use the convenience initializer:
-AO3ChapterView(chapter: chapter, work: work)
 ```
 
-### Custom Fonts
+### Font Design Options
 
-AO3KitUI respects your font settings, making it easy to use custom fonts:
+AO3KitUI supports three font designs via the `AO3FontDesign` enum:
 
 ```swift
-AO3ChapterView(chapter: chapter)
-    .font(.custom("New York", size: 18))
-    .padding()
+// Serif (recommended for reading)
+AO3ChapterView(
+    chapter: chapter,
+    work: work,
+    topVisibleIndex: $scrollPosition,
+    fontDesign: .serif
+)
 
-// Or use system fonts with different sizes
-AO3ChapterView(chapter: chapter)
-    .font(.system(size: 20, design: .serif))
-    .padding()
+// System default
+AO3ChapterView(
+    chapter: chapter,
+    work: work,
+    topVisibleIndex: $scrollPosition,
+    fontDesign: .default
+)
+
+// Rounded
+AO3ChapterView(
+    chapter: chapter,
+    work: work,
+    topVisibleIndex: $scrollPosition,
+    fontDesign: .rounded
+)
 ```
 
-### Custom Styling
+### Custom Colors
 
-Style the chapter view like any SwiftUI view:
+Apply custom text and background colors for reading modes (dark, sepia, etc.):
 
 ```swift
-AO3ChapterView(chapter: chapter, work: work)
-    .font(.custom("Georgia", size: 17))
-    .foregroundColor(.primary)
-    .padding(.horizontal, 20)
-    .padding(.vertical, 12)
-    .background(Color(.systemBackground))
+AO3ChapterView(
+    chapter: chapter,
+    work: work,
+    topVisibleIndex: $scrollPosition,
+    fontSize: 18,
+    fontDesign: .serif,
+    textColor: UIColor(red: 64/255, green: 62/255, blue: 59/255, alpha: 1),  // Sepia text
+    backgroundColor: UIColor(red: 229/255, green: 196/255, blue: 144/255, alpha: 1)  // Sepia background
+)
+```
+
+### Custom Header View
+
+Add a scrollable header that moves with the content using the `header` parameter:
+
+```swift
+AO3ChapterView(
+    chapter: chapter,
+    work: work,
+    topVisibleIndex: $scrollPosition,
+    fontSize: 18,
+    fontDesign: .serif,
+    textColor: .label,
+    backgroundColor: .systemBackground
+) {
+    // Your custom SwiftUI header
+    VStack(spacing: 8) {
+        Text("Chapter \(chapter.number)")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        Text(chapter.title)
+            .font(.title2)
+            .fontWeight(.bold)
+    }
+    .padding()
+}
 ```
 
 ### Full Reading Experience
 
-Build a complete reading interface:
+Build a complete reading interface with preferences:
 
 ```swift
 struct ChapterView: View {
     let work: AO3Work
     let chapter: AO3Chapter
+    @State private var scrollPosition: Int? = nil
     @State private var fontSize: CGFloat = 17
+    @State private var fontDesign: AO3FontDesign = .serif
+    @State private var isDarkMode = false
+
+    var textColor: UIColor { isDarkMode ? .white : .label }
+    var backgroundColor: UIColor { isDarkMode ? .black : .systemBackground }
 
     var body: some View {
         VStack(spacing: 0) {
-            // Chapter header
-            VStack(alignment: .leading, spacing: 8) {
-                Text(work.title)
-                    .font(.title2)
-                    .fontWeight(.semibold)
-                Text(chapter.title)
-                    .font(.headline)
-                    .foregroundColor(.secondary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding()
-            .background(Color(.secondarySystemBackground))
-
-            // Chapter content
-            AO3ChapterView(chapter: chapter, work: work)
-                .font(.system(size: fontSize, design: .serif))
+            // Chapter content with header
+            AO3ChapterView(
+                chapter: chapter,
+                work: work,
+                topVisibleIndex: $scrollPosition,
+                fontSize: fontSize,
+                fontDesign: fontDesign,
+                textColor: textColor,
+                backgroundColor: backgroundColor
+            ) {
+                // Scrollable header
+                VStack(spacing: 8) {
+                    Text(work.title)
+                        .font(.title2)
+                        .fontWeight(.semibold)
+                    Text(chapter.title)
+                        .font(.headline)
+                        .foregroundStyle(.secondary)
+                }
                 .padding()
+            }
 
             // Font size controls
             HStack {
@@ -160,9 +235,13 @@ struct ChapterView: View {
                 Button(action: { fontSize = min(32, fontSize + 2) }) {
                     Image(systemName: "textformat.size.larger")
                 }
+
+                Divider()
+
+                Toggle("Dark", isOn: $isDarkMode)
             }
             .padding()
-            .background(Color(.secondarySystemBackground))
+            .background(Color(backgroundColor))
         }
     }
 }
@@ -252,7 +331,7 @@ ScrollView {
 
 ## Architecture
 
-AO3KitUI uses a three-stage rendering pipeline:
+AO3KitUI uses a multi-stage rendering pipeline with UIKit for optimal performance:
 
 1. **CSS Parsing** (`CSSParser`)
    - Extracts color definitions from work skin CSS
@@ -268,6 +347,12 @@ AO3KitUI uses a three-stage rendering pipeline:
    - Groups inline elements to prevent unwanted line breaks
    - Applies formatting while respecting parent styles
 
+4. **UIKit Display** (`AO3ChapterView`)
+   - Wraps UITableView via UIViewRepresentable
+   - Each parsed view becomes a reusable table cell
+   - Uses UIHostingController to embed SwiftUI in cells
+   - Tracks scroll position via UIScrollViewDelegate
+
 ```
 HTML String → CSSParser → WorkSkin
      ↓                       ↓
@@ -278,82 +363,88 @@ HTMLNode Tree
 HTMLViewBuilder
      ↓
 SwiftUI Views (AnyView array)
+     ↓
+UITableView + UIHostingController cells
 ```
 
 ## Performance Considerations
 
-- **Lazy Rendering**: Use `LazyVStack` for long chapters
+`AO3ChapterView` is designed for maximum performance out of the box:
+
+- **UITableView Backend**: Uses native UIKit scrolling for buttery-smooth performance
+- **Cell Reuse**: Efficient memory usage via UITableViewCell recycling
+- **Lazy Position Tracking**: Scroll position only updates when scrolling ends
+  - Uses `scrollViewDidEndDragging` and `scrollViewDidEndDecelerating`
+  - No overhead during active scrolling
+- **Styling Updates**: Changes to font size, font design, or colors trigger a table reload
+- **Header View**: Custom SwiftUI headers use UIHostingController as tableHeaderView
+
+### Why UIKit?
+
+SwiftUI's ScrollView and LazyVStack can introduce jitter when:
+- Tracking scroll position via onChange or scrollPosition bindings
+- Loading/unloading views during scroll
+- Updating @State properties during scroll
+
+By using UITableView directly, we get native-quality scrolling performance while keeping the SwiftUI API surface clean and familiar.
+
+### Parsing Performance
+
 - **Caching**: Parse results are not cached - consider caching rendered views if needed
 - **Memory**: Each chapter parse creates a new node tree
-- **Threading**: Parsing is synchronous; consider dispatching to background queue for large chapters
-
-Example with background parsing:
-
-```swift
-struct ChapterView: View {
-    let chapter: AO3Chapter
-    @State private var views: [AnyView] = []
-    @State private var isLoading = true
-
-    var body: some View {
-        Group {
-            if isLoading {
-                ProgressView()
-            } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(views.enumerated()), id: \.offset) { _, view in
-                            view
-                        }
-                    }
-                    .padding()
-                }
-            }
-        }
-        .task {
-            views = await Task.detached {
-                try? AO3HTMLRenderer.parse(chapter.contentHTML)
-            }.value ?? []
-            isLoading = false
-        }
-    }
-}
-```
+- **Threading**: Parsing is synchronous; consider dispatching to background queue for very large chapters
 
 ## SwiftUI Previews
 
 AO3KitUI views work great with SwiftUI previews:
 
 ```swift
-#Preview {
+#Preview("Chapter View") {
     AO3ChapterView(
-        chapter: AO3MockData.sampleChapterFormatted
+        chapter: AO3MockData.sampleChapter1,
+        work: AO3MockData.sampleWork1,
+        topVisibleIndex: .constant(nil),
+        fontSize: 18,
+        fontDesign: .serif
     )
-    .font(.custom("New York", size: 18))
-    .padding()
 }
 
 #Preview("Dark Mode") {
     AO3ChapterView(
-        chapter: AO3MockData.sampleChapter1
+        chapter: AO3MockData.sampleChapter1,
+        work: AO3MockData.sampleWork1,
+        topVisibleIndex: .constant(nil),
+        fontSize: 18,
+        fontDesign: .serif,
+        textColor: .white,
+        backgroundColor: .black
     )
-    .preferredColorScheme(.dark)
-    .padding()
+}
+
+#Preview("With Header") {
+    AO3ChapterView(
+        chapter: AO3MockData.sampleChapter1,
+        work: AO3MockData.sampleWork1,
+        topVisibleIndex: .constant(nil),
+        fontSize: 18,
+        fontDesign: .serif
+    ) {
+        Text("Custom Header")
+            .font(.title)
+            .padding()
+    }
 }
 ```
 
 ## Error Handling
 
-`AO3ChapterView` handles parsing errors gracefully:
+`AO3ChapterView` handles parsing errors gracefully. If HTML parsing fails, the view will display an empty table. For manual error handling:
 
 ```swift
-// Displays error UI if HTML parsing fails
-AO3ChapterView(html: invalidHTML)
-
-// Manual error handling
+// Manual error handling with AO3HTMLRenderer
 do {
     let views = try AO3HTMLRenderer.parse(html, workSkinCSS: css)
-    // Use views
+    // Use views in your own implementation
 } catch {
     print("Failed to parse: \(error)")
     // Show custom error UI
@@ -362,6 +453,7 @@ do {
 
 ## Limitations
 
+- **iOS/iPadOS Only**: `AO3ChapterView` uses UITableView and is only available on iOS/iPadOS
 - **Tables**: Not currently supported (displays placeholder text)
 - **Images**: Not rendered (displays alt text)
 - **Ruby Annotations**: Not yet implemented
