@@ -39,7 +39,9 @@ open class AO3Data: Codable, @unchecked Sendable {
             if depth == 9 {
                 throw AO3Exception.tooManyRedirects
             }
-            return try await getDocument("\(url)?view_adult=true", depth: depth + 1)
+            // Properly append view_adult=true, avoiding duplicates
+            let adultURL = Self.appendViewAdult(to: url)
+            return try await getDocument(adultURL, depth: depth + 1)
         }
 
         // Check for registered users only
@@ -75,5 +77,22 @@ open class AO3Data: Codable, @unchecked Sendable {
     /// - Returns: The URL string
     internal func buildURL() -> String {
         fatalError("buildURL() must be implemented by subclasses")
+    }
+
+    /// Appends view_adult=true to a URL, handling existing query parameters correctly
+    /// - Parameter url: The original URL
+    /// - Returns: URL with view_adult=true properly appended
+    private static func appendViewAdult(to url: String) -> String {
+        // If already has view_adult=true, return as-is
+        if url.contains("view_adult=true") {
+            return url
+        }
+
+        // Use proper separator based on existing query string
+        if url.contains("?") {
+            return "\(url)&view_adult=true"
+        } else {
+            return "\(url)?view_adult=true"
+        }
     }
 }

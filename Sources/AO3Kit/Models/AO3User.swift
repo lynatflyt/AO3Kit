@@ -16,6 +16,15 @@ public class AO3User: AO3Data, @unchecked Sendable {
         try await loadUserData()
     }
 
+    /// Lightweight initializer that doesn't fetch user data
+    /// Used for creating author references from search results without network requests
+    internal init(username: String, pseud: String, lightweight: Bool) {
+        self.username = username
+        self.pseud = pseud
+        super.init()
+        // Don't fetch user data - just store the username/pseud
+    }
+
     private enum CodingKeys: String, CodingKey {
         case username, pseud, imageURL, fandoms, recentWorks
     }

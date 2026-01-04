@@ -6,7 +6,7 @@ internal struct AO3WorkParser {
     func parse(document: Document, into work: AO3Work) async throws {
         // Parse basic metadata
         work.title = try parseTitle(from: document)
-        work.authors = try await parseAuthors(from: document)
+        work.authors = try parseAuthors(from: document)
 
         // Parse tags and warnings
         work.archiveWarning = AO3Warning.byValue(try getArchiveTag("warning", document: document))
@@ -33,6 +33,13 @@ internal struct AO3WorkParser {
 
         // Parse work skin CSS if present
         work.workSkinCSS = try parseWorkSkinCSS(from: document)
+
+        // Parse first chapter content (displayed on work page)
+        let (content, html) = try parseFirstChapterContent(from: document)
+        work.firstChapterContent = content
+        work.firstChapterHTML = html
+        work.firstChapterNotes = try parseFirstChapterNotes(from: document)
+        work.firstChapterSummary = try parseFirstChapterSummary(from: document)
     }
 
     // MARK: - Parsing Methods
@@ -41,7 +48,7 @@ internal struct AO3WorkParser {
         return try document.select("h2.title.heading").first()?.html() ?? ""
     }
 
-    private func parseAuthors(from document: Document) async throws -> [AO3User] {
+    private func parseAuthors(from document: Document) throws -> [AO3User] {
         let pseudRegex = try NSRegularExpression(pattern: "\\((.*?)\\)", options: [])
         var tempAuthors: [AO3User] = []
 
@@ -55,10 +62,12 @@ internal struct AO3WorkParser {
                     if let usernameRange = Range(match.range(at: 1), in: authorText) {
                         let username = String(authorText[usernameRange])
                         let pseud = authorText.components(separatedBy: " ")[0].trimmingCharacters(in: .whitespaces)
-                        tempAuthors.append(try await AO3User(username: username, pseud: pseud))
+                        // Use lightweight initializer - no network request for author profile
+                        tempAuthors.append(AO3User(username: username, pseud: pseud, lightweight: true))
                     }
                 } else {
-                    tempAuthors.append(try await AO3User(username: authorText, pseud: authorText))
+                    // Use lightweight initializer - no network request for author profile
+                    tempAuthors.append(AO3User(username: authorText, pseud: authorText, lightweight: true))
                 }
             }
         }
@@ -158,6 +167,54 @@ internal struct AO3WorkParser {
             return try styleTag.html()
         }
         return nil
+    }
+
+    private func parseFirstChapterContent(from document: Document) throws -> (content: String?, html: String?) {
+        // The first chapter content is displayed on the work page in the [role=article] element
+        guard let article = try document.select("[role=article]").first() else {
+            return (nil, nil)
+        }
+
+        let paragraphs = try article.select("p")
+        let contentArray = try paragraphs.map { try $0.text() }
+        let htmlArray = try paragraphs.map { try $0.outerHtml() }
+
+        let content = contentArray.joined(separator: "\n")
+        let html = htmlArray.joined(separator: "\n")
+
+        // Only return if we actually have content
+        guard !content.isEmpty else {
+            return (nil, nil)
+        }
+
+        return (content, html)
+    }
+
+    private func parseFirstChapterNotes(from document: Document) throws -> [String] {
+        var tempNotes: [String] = []
+        let notesModules = try document.select("div.notes.module")
+
+        for noteModule in notesModules {
+            if let userstuff = try noteModule.select(".userstuff").first() {
+                let paragraphs = try userstuff.select("p")
+                let noteText = try paragraphs.map { try $0.text() }.joined(separator: "\n")
+                if !noteText.isEmpty {
+                    tempNotes.append(noteText)
+                }
+            }
+        }
+
+        return tempNotes
+    }
+
+    private func parseFirstChapterSummary(from document: Document) throws -> String {
+        if let summaryDiv = try document.select("div.summary.module").first(),
+           let blockquote = try summaryDiv.select("blockquote.userstuff").first() {
+            let paragraphs = try blockquote.select("p")
+            let summaryArray = try paragraphs.map { try $0.html() }
+            return summaryArray.joined(separator: "\n")
+        }
+        return ""
     }
 
     // MARK: - Tag Helpers

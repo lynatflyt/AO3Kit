@@ -25,7 +25,26 @@ public struct AO3 {
         // Cache miss or no cache - fetch from network
         do {
             let work = try await AO3Work(id: workID)
-            // Store in cache if available
+
+            // Cache the first chapter if we parsed content from the work page
+            // This avoids a duplicate request when user opens the chapter
+            if let content = work.firstChapterContent,
+               let html = work.firstChapterHTML,
+               let firstChapterInfo = work.chapters.first {
+                let chapter = AO3Chapter(
+                    workID: work.id,
+                    chapterID: firstChapterInfo.id,
+                    number: firstChapterInfo.number,
+                    title: firstChapterInfo.title,
+                    content: content,
+                    contentHTML: html,
+                    notes: work.firstChapterNotes,
+                    summary: work.firstChapterSummary
+                )
+                await cache?.setChapter(chapter)
+            }
+
+            // Store work in cache if available
             await cache?.setWork(work)
             return work
         } catch let error as AO3Exception {
@@ -82,7 +101,23 @@ public struct AO3 {
 
         // Cache miss or no cache - fetch from network
         let chapter = try await AO3Chapter(workID: workID, chapterID: chapterID)
-        // Store in cache if available
+
+        // If we parsed work metadata from the chapter page, refresh the work cache
+        // This keeps work stats (kudos, hits, etc.) fresh without extra requests
+        if let parsedWork = chapter.parsedWork {
+            // Also cache the current chapter in the work's first chapter data
+            // so it's available if this chapter is the first one
+            if let firstChapterInfo = parsedWork.chapters.first,
+               firstChapterInfo.id == chapterID {
+                parsedWork.firstChapterContent = chapter.content
+                parsedWork.firstChapterHTML = chapter.contentHTML
+                parsedWork.firstChapterNotes = chapter.notes
+                parsedWork.firstChapterSummary = chapter.summary
+            }
+            await cache?.setWork(parsedWork)
+        }
+
+        // Store chapter in cache
         await cache?.setChapter(chapter)
         return chapter
     }
@@ -152,6 +187,41 @@ public struct AO3 {
         return try await executeSearch(urlString: urlString)
     }
 
+    // MARK: - Autocomplete
+
+    /// Fetches autocomplete suggestions for tags
+    /// - Parameters:
+    ///   - type: The type of autocomplete (fandom, relationship, character, freeform)
+    ///   - term: The search term to get suggestions for
+    /// - Returns: Array of tag name suggestions
+    /// - Throws: AO3Exception if the request fails
+    public static func autocomplete(
+        type: AO3AutocompleteType,
+        term: String
+    ) async throws -> [String] {
+        guard !term.isEmpty else { return [] }
+
+        let encodedTerm = term.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? term
+        let urlString = "https://archiveofourown.org/autocomplete/\(type.rawValue).json?term=\(encodedTerm)"
+
+        let (data, statusCode) = try await AO3Utils.syncRequest(urlString)
+
+        guard statusCode == 200 else {
+            throw AO3Exception.invalidStatusCode(statusCode, nil)
+        }
+
+        // Parse JSON response: [{"id": "Tag Name", "name": "Tag Name"}, ...]
+        struct AutocompleteResult: Decodable {
+            let id: String
+            let name: String
+        }
+
+        let results = try AO3Utils.jsonDecoder.decode([AutocompleteResult].self, from: data)
+        return results.map { $0.name }
+    }
+
+    // MARK: - Search Implementation
+
     private static func executeSearch(urlString: String) async throws -> [AO3Work] {
         let (data, statusCode) = try await AO3Utils.syncRequest(urlString)
 
@@ -165,45 +235,17 @@ public struct AO3 {
 
         let document = try SwiftSoup.parse(body)
 
-        // Find the results list
-        guard let resultList = try document.select("ol.work.index.group").first() else {
-            return []
+        // Parse work metadata directly from the search result blurbs
+        // This is MUCH more efficient than fetching each work individually
+        // (1 request instead of N+1 requests)
+        let parser = AO3SearchResultParser()
+        let works = try parser.parseSearchResults(from: document)
+
+        // Cache the parsed works if caching is enabled
+        for work in works {
+            await cache?.setWork(work)
         }
 
-        let results = try resultList.select("li.work.blurb.group")
-
-        // Extract work IDs from the results
-        var workIDs: [Int] = []
-        for result in results {
-            let id = result.id()
-            if id.hasPrefix("work_") {
-                let idString = String(id.dropFirst(5))
-                if let workID = Int(idString) {
-                    workIDs.append(workID)
-                }
-            }
-        }
-
-        // Fetch each work (in parallel for better performance)
-        return await withTaskGroup(of: AO3Work?.self) { group in
-            for workID in workIDs {
-                group.addTask {
-                    do {
-                        return try await getWork(workID)
-                    } catch {
-                        print("Error fetching work \(workID): \(error)")
-                        return nil
-                    }
-                }
-            }
-
-            var works: [AO3Work] = []
-            for await work in group {
-                if let work = work {
-                    works.append(work)
-                }
-            }
-            return works
-        }
+        return works
     }
 }

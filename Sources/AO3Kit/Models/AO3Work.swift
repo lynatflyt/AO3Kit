@@ -1,4 +1,5 @@
 import Foundation
+import SwiftSoup
 
 /// Object representing a work on AO3. Contains statistics, metadata and chapter information.
 public class AO3Work: AO3Data, @unchecked Sendable {
@@ -19,6 +20,11 @@ public class AO3Work: AO3Data, @unchecked Sendable {
     public internal(set) var chapters: [AO3ChapterInfo] = []
     public internal(set) var workSkinCSS: String? = nil
 
+    // Internal-only: First chapter content parsed from work page (used for caching)
+    public internal(set) var firstChapterContent: String?
+    public internal(set) var firstChapterHTML: String?
+    public internal(set) var firstChapterNotes: [String] = []
+    public internal(set) var firstChapterSummary: String = "" 
     internal init(id: Int) async throws {
         self.id = id
         super.init()
@@ -26,10 +32,27 @@ public class AO3Work: AO3Data, @unchecked Sendable {
         try await loadWorkData()
     }
 
+    /// Internal initializer for creating a work from a pre-fetched document (e.g., from chapter page)
+    internal init(id: Int, document: Document) async throws {
+        self.id = id
+        super.init()
+        let parser = AO3WorkParser()
+        try await parser.parse(document: document, into: self)
+    }
+
+    /// Internal initializer for creating a work from a search result blurb (no network fetch)
+    internal init(id: Int, blurb: Element) throws {
+        self.id = id
+        super.init()
+        let parser = AO3SearchResultParser()
+        try parser.parseBlurb(blurb, into: self)
+    }
+
     private enum CodingKeys: String, CodingKey {
         case id, title, authors, archiveWarning, rating, category, fandom
         case relationships, characters, additionalTags, language, stats
         case published, updated, chapters, workSkinCSS
+        case firstChapterContent, firstChapterHTML, firstChapterNotes, firstChapterSummary
     }
 
     required public init(from decoder: Decoder) throws {
@@ -50,6 +73,10 @@ public class AO3Work: AO3Data, @unchecked Sendable {
         updated = try container.decode(Date.self, forKey: .updated)
         chapters = try container.decode([AO3ChapterInfo].self, forKey: .chapters)
         workSkinCSS = try container.decodeIfPresent(String.self, forKey: .workSkinCSS)
+        firstChapterContent = try container.decodeIfPresent(String.self, forKey: .firstChapterContent)
+        firstChapterHTML = try container.decodeIfPresent(String.self, forKey: .firstChapterHTML)
+        firstChapterNotes = try container.decodeIfPresent([String].self, forKey: .firstChapterNotes) ?? []
+        firstChapterSummary = try container.decodeIfPresent(String.self, forKey: .firstChapterSummary) ?? ""
         super.init()
     }
 
@@ -71,6 +98,10 @@ public class AO3Work: AO3Data, @unchecked Sendable {
         try container.encode(updated, forKey: .updated)
         try container.encode(chapters, forKey: .chapters)
         try container.encodeIfPresent(workSkinCSS, forKey: .workSkinCSS)
+        try container.encodeIfPresent(firstChapterContent, forKey: .firstChapterContent)
+        try container.encodeIfPresent(firstChapterHTML, forKey: .firstChapterHTML)
+        try container.encode(firstChapterNotes, forKey: .firstChapterNotes)
+        try container.encode(firstChapterSummary, forKey: .firstChapterSummary)
     }
 
     private func loadWorkData() async throws {

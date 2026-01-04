@@ -1,5 +1,13 @@
 import Foundation
 
+/// Types of autocomplete available on AO3
+public enum AO3AutocompleteType: String, Codable, CaseIterable {
+    case fandom = "fandom"
+    case relationship = "relationship"
+    case character = "character"
+    case freeform = "freeform"  // Additional tags
+}
+
 /// Enumeration of archive warnings
 public enum AO3Warning: String, Codable, CaseIterable {
     case noWarnings = "Creator Chose Not To Use Archive Warnings"
