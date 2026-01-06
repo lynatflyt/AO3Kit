@@ -1,13 +1,6 @@
 import Foundation
 import SwiftSoup
-
-#if canImport(AppKit)
-import AppKit
-#endif
-
-#if canImport(UIKit)
-import UIKit
-#endif
+import SwiftUI
 
 /// Converts AO3 chapter HTML to AttributedString with formatting
 @available(macOS 12.0, iOS 15.0, watchOS 8.0, tvOS 15.0, *)
@@ -86,11 +79,7 @@ internal struct AO3ChapterAttributedStringConverter {
         let colorMap: [String: (red: Double, green: Double, blue: Double)] = [:]
 
         if let rgb = colorMap[className] {
-            #if canImport(AppKit)
-            attrs.foregroundColor = NSColor(red: rgb.red, green: rgb.green, blue: rgb.blue, alpha: 1.0)
-            #elseif canImport(UIKit)
-            attrs.foregroundColor = UIColor(red: rgb.red, green: rgb.green, blue: rgb.blue, alpha: 1.0)
-            #endif
+            attrs.foregroundColor = Color(red: rgb.red, green: rgb.green, blue: rgb.blue)
         } else {
             // Generate a deterministic color from the class name for custom spans
             let hash = className.hashValue
@@ -98,11 +87,7 @@ internal struct AO3ChapterAttributedStringConverter {
             let green = Double((hash & 0x00FF00) >> 8) / 255.0
             let blue = Double(hash & 0x0000FF) / 255.0
 
-            #if canImport(AppKit)
-            attrs.foregroundColor = NSColor(red: red, green: green, blue: blue, alpha: 1.0)
-            #elseif canImport(UIKit)
-            attrs.foregroundColor = UIColor(red: red, green: green, blue: blue, alpha: 1.0)
-            #endif
+            attrs.foregroundColor = Color(red: red, green: green, blue: blue)
         }
 
         return attrs
