@@ -13,38 +13,142 @@ public struct CSSParser {
 
         var colorMap: [String: String] = [:]
 
-        // Match: #workskin .ClassName { ... color: #hexcolor; ... }
-        // Regex explanation:
-        // - #workskin\s+ : match "#workskin" followed by whitespace
-        // - \.(\w+) : match "." followed by class name (captured)
-        // - \s*\{ : match opening brace
-        // - [^}]* : match any content except closing brace
-        // - color:\s* : match "color:" with optional whitespace
-        // - #([0-9a-fA-F]{6}) : match # followed by 6 hex digits (captured)
-        let pattern = #"#workskin\s+\.(\w+)\s*\{[^}]*color:\s*#([0-9a-fA-F]{6})"#
+        // Pattern to find class names and their color properties
+        // This handles: #workskin .class, .class, p.class, span.class, etc.
+        let rulePattern = #"(?:#workskin\s+)?(?:\w+)?\.([a-zA-Z_][\w-]*)\s*\{([^}]*)\}"#
 
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+        guard let ruleRegex = try? NSRegularExpression(pattern: rulePattern, options: [.caseInsensitive]) else {
             return WorkSkin()
         }
 
         let nsString = css as NSString
-        let matches = regex.matches(in: css, range: NSRange(location: 0, length: nsString.length))
+        let ruleMatches = ruleRegex.matches(in: css, range: NSRange(location: 0, length: nsString.length))
 
-        for match in matches {
-            // Extract class name (first capture group)
-            if match.numberOfRanges > 1,
-               let classRange = Range(match.range(at: 1), in: css) {
-                let className = String(css[classRange])
+        for match in ruleMatches {
+            guard match.numberOfRanges > 2,
+                  let classRange = Range(match.range(at: 1), in: css),
+                  let propsRange = Range(match.range(at: 2), in: css) else {
+                continue
+            }
 
-                // Extract hex color (second capture group)
-                if match.numberOfRanges > 2,
-                   let colorRange = Range(match.range(at: 2), in: css) {
-                    let hexColor = String(css[colorRange])
-                    colorMap[className] = hexColor.lowercased()
-                }
+            let className = String(css[classRange])
+            let properties = String(css[propsRange])
+
+            // Extract color from properties
+            if let hexColor = extractColor(from: properties) {
+                colorMap[className] = hexColor
             }
         }
 
         return WorkSkin(colorMap: colorMap)
+    }
+
+    /// Extract color value from CSS properties string
+    private static func extractColor(from properties: String) -> String? {
+        // Match color property with various formats
+        // - color: #RGB or #RRGGBB
+        // - color: rgb(r, g, b)
+        // - color: rgba(r, g, b, a)
+        // - color: colorname
+
+        let colorPattern = #"(?:^|;)\s*color\s*:\s*([^;]+)"#
+        guard let regex = try? NSRegularExpression(pattern: colorPattern, options: [.caseInsensitive]),
+              let match = regex.firstMatch(in: properties, range: NSRange(location: 0, length: properties.utf16.count)),
+              match.numberOfRanges > 1,
+              let valueRange = Range(match.range(at: 1), in: properties) else {
+            return nil
+        }
+
+        let colorValue = String(properties[valueRange]).trimmingCharacters(in: .whitespaces)
+
+        // Handle different color formats
+        if colorValue.hasPrefix("#") {
+            // Hex color
+            var hex = String(colorValue.dropFirst())
+            // Convert #RGB to #RRGGBB
+            if hex.count == 3 {
+                hex = hex.map { "\($0)\($0)" }.joined()
+            }
+            if hex.count == 6, hex.allSatisfy({ $0.isHexDigit }) {
+                return hex.lowercased()
+            }
+        } else if colorValue.lowercased().hasPrefix("rgb") {
+            // RGB or RGBA format
+            if let hex = rgbToHex(colorValue) {
+                return hex
+            }
+        } else {
+            // Named color
+            if let hex = namedColorToHex(colorValue.lowercased()) {
+                return hex
+            }
+        }
+
+        return nil
+    }
+
+    /// Convert rgb(r,g,b) or rgba(r,g,b,a) to hex
+    private static func rgbToHex(_ rgb: String) -> String? {
+        let pattern = #"rgba?\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []),
+              let match = regex.firstMatch(in: rgb, range: NSRange(location: 0, length: rgb.utf16.count)),
+              match.numberOfRanges > 3,
+              let rRange = Range(match.range(at: 1), in: rgb),
+              let gRange = Range(match.range(at: 2), in: rgb),
+              let bRange = Range(match.range(at: 3), in: rgb),
+              let r = Int(rgb[rRange]),
+              let g = Int(rgb[gRange]),
+              let b = Int(rgb[bRange]) else {
+            return nil
+        }
+
+        return String(format: "%02x%02x%02x", min(r, 255), min(g, 255), min(b, 255))
+    }
+
+    /// Convert named CSS color to hex
+    private static func namedColorToHex(_ name: String) -> String? {
+        let colors: [String: String] = [
+            "black": "000000",
+            "white": "ffffff",
+            "red": "ff0000",
+            "green": "008000",
+            "blue": "0000ff",
+            "yellow": "ffff00",
+            "orange": "ffa500",
+            "purple": "800080",
+            "pink": "ffc0cb",
+            "gray": "808080",
+            "grey": "808080",
+            "brown": "a52a2a",
+            "cyan": "00ffff",
+            "magenta": "ff00ff",
+            "lime": "00ff00",
+            "navy": "000080",
+            "teal": "008080",
+            "maroon": "800000",
+            "olive": "808000",
+            "silver": "c0c0c0",
+            "aqua": "00ffff",
+            "fuchsia": "ff00ff",
+            "gold": "ffd700",
+            "indigo": "4b0082",
+            "violet": "ee82ee",
+            "coral": "ff7f50",
+            "salmon": "fa8072",
+            "crimson": "dc143c",
+            "darkred": "8b0000",
+            "darkblue": "00008b",
+            "darkgreen": "006400",
+            "darkorange": "ff8c00",
+            "darkviolet": "9400d3",
+            "deeppink": "ff1493",
+            "lightblue": "add8e6",
+            "lightgreen": "90ee90",
+            "lightpink": "ffb6c1",
+            "lightyellow": "ffffe0",
+            "lightgray": "d3d3d3",
+            "lightgrey": "d3d3d3",
+        ]
+        return colors[name]
     }
 }

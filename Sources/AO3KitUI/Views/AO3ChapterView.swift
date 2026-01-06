@@ -44,7 +44,7 @@ public enum AO3FontDesign: String, Sendable {
 ///     backgroundColor: .systemBackground
 /// )
 /// ```
-public struct AO3ChapterView<Header: View>: UIViewRepresentable {
+public struct AO3ChapterView<Header: View, Footer: View>: UIViewRepresentable {
     private let views: [AnyView]
     private let parseError: Error?
 
@@ -55,6 +55,7 @@ public struct AO3ChapterView<Header: View>: UIViewRepresentable {
     let textColor: UIColor
     let backgroundColor: UIColor
     let headerView: Header?
+    let footerView: Footer?
 
     public init(
         html: String,
@@ -65,7 +66,8 @@ public struct AO3ChapterView<Header: View>: UIViewRepresentable {
         fontDesign: AO3FontDesign = .default,
         textColor: UIColor = .label,
         backgroundColor: UIColor = .systemBackground,
-        @ViewBuilder header: () -> Header
+        @ViewBuilder header: () -> Header,
+        @ViewBuilder footer: () -> Footer
     ) {
         do {
             self.views = try AO3HTMLRenderer.parse(html, workSkinCSS: workSkinCSS)
@@ -81,6 +83,7 @@ public struct AO3ChapterView<Header: View>: UIViewRepresentable {
         self.textColor = textColor
         self.backgroundColor = backgroundColor
         self.headerView = header()
+        self.footerView = footer()
     }
 
     public init(
@@ -92,7 +95,8 @@ public struct AO3ChapterView<Header: View>: UIViewRepresentable {
         fontDesign: AO3FontDesign = .default,
         textColor: UIColor = .label,
         backgroundColor: UIColor = .systemBackground,
-        @ViewBuilder header: () -> Header
+        @ViewBuilder header: () -> Header,
+        @ViewBuilder footer: () -> Footer
     ) {
         self.init(
             html: chapter.contentHTML,
@@ -103,7 +107,8 @@ public struct AO3ChapterView<Header: View>: UIViewRepresentable {
             fontDesign: fontDesign,
             textColor: textColor,
             backgroundColor: backgroundColor,
-            header: header
+            header: header,
+            footer: footer
         )
     }
 
@@ -150,6 +155,24 @@ public struct AO3ChapterView<Header: View>: UIViewRepresentable {
             hostingController.view.frame = CGRect(origin: .zero, size: size)
             hostingController.view.translatesAutoresizingMaskIntoConstraints = true
             tableView.tableHeaderView = hostingController.view
+        }
+
+        // Set up footer view if provided
+        if let footerView = footerView {
+            let hostingController = UIHostingController(rootView: AnyView(footerView))
+            hostingController.view.backgroundColor = backgroundColor
+            context.coordinator.footerHostingController = hostingController
+
+            // Size the footer to fit
+            hostingController.view.translatesAutoresizingMaskIntoConstraints = false
+            let size = hostingController.view.systemLayoutSizeFitting(
+                CGSize(width: UIScreen.main.bounds.width, height: UIView.layoutFittingCompressedSize.height),
+                withHorizontalFittingPriority: .required,
+                verticalFittingPriority: .fittingSizeLevel
+            )
+            hostingController.view.frame = CGRect(origin: .zero, size: size)
+            hostingController.view.translatesAutoresizingMaskIntoConstraints = true
+            tableView.tableFooterView = hostingController.view
         }
 
         return tableView
@@ -206,6 +229,25 @@ public struct AO3ChapterView<Header: View>: UIViewRepresentable {
             }
         }
 
+        // Update footer if styling changed
+        if stylingChanged, let footerView = footerView {
+            if let hostingController = coordinator.footerHostingController {
+                hostingController.rootView = AnyView(footerView)
+                hostingController.view.backgroundColor = backgroundColor
+
+                // Re-size the footer
+                hostingController.view.translatesAutoresizingMaskIntoConstraints = false
+                let size = hostingController.view.systemLayoutSizeFitting(
+                    CGSize(width: tableView.bounds.width, height: UIView.layoutFittingCompressedSize.height),
+                    withHorizontalFittingPriority: .required,
+                    verticalFittingPriority: .fittingSizeLevel
+                )
+                hostingController.view.frame = CGRect(origin: .zero, size: size)
+                hostingController.view.translatesAutoresizingMaskIntoConstraints = true
+                tableView.tableFooterView = hostingController.view
+            }
+        }
+
         // Reload visible cells if styling changed
         if stylingChanged {
             tableView.reloadData()
@@ -215,7 +257,7 @@ public struct AO3ChapterView<Header: View>: UIViewRepresentable {
     // MARK: - Coordinator
 
     public class Coordinator: NSObject, UITableViewDataSource, UITableViewDelegate, UIScrollViewDelegate {
-        var parent: AO3ChapterView<Header>
+        var parent: AO3ChapterView<Header, Footer>
         var views: [AnyView] = []
         var fontSize: CGFloat = 17
         var fontDesign: AO3FontDesign = .default
@@ -224,8 +266,9 @@ public struct AO3ChapterView<Header: View>: UIViewRepresentable {
         var didInitialScroll = false
         weak var tableView: UITableView?
         var headerHostingController: UIHostingController<AnyView>?
+        var footerHostingController: UIHostingController<AnyView>?
 
-        init(_ parent: AO3ChapterView<Header>) {
+        init(_ parent: AO3ChapterView<Header, Footer>) {
             self.parent = parent
         }
 
@@ -246,10 +289,10 @@ public struct AO3ChapterView<Header: View>: UIViewRepresentable {
         public func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
             let cell = tableView.dequeueReusableCell(withIdentifier: "ContentCell", for: indexPath) as! HostingCell
 
-            let font = makeFont()
+            // Use SwiftUI's native font system to properly support fontWeight/bold
+            // Font(UIFont) creates a fixed font that doesn't respond to weight changes
             let view = views[indexPath.row]
-                .font(Font(font))
-                .fontDesign(fontDesign.swiftUIDesign)
+                .font(.system(size: fontSize, design: fontDesign.swiftUIDesign))
                 .foregroundStyle(Color(textColor))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 20)
@@ -284,9 +327,63 @@ public struct AO3ChapterView<Header: View>: UIViewRepresentable {
     }
 }
 
-// MARK: - No Header Convenience
+// MARK: - Convenience Initializers
 
-extension AO3ChapterView where Header == EmptyView {
+// Header only (no footer)
+extension AO3ChapterView where Footer == EmptyView {
+    public init(
+        html: String,
+        workSkinCSS: String? = nil,
+        topVisibleIndex: Binding<Int?>,
+        initialPosition: Int? = nil,
+        fontSize: CGFloat = 17,
+        fontDesign: AO3FontDesign = .default,
+        textColor: UIColor = .label,
+        backgroundColor: UIColor = .systemBackground,
+        @ViewBuilder header: () -> Header
+    ) {
+        self.init(
+            html: html,
+            workSkinCSS: workSkinCSS,
+            topVisibleIndex: topVisibleIndex,
+            initialPosition: initialPosition,
+            fontSize: fontSize,
+            fontDesign: fontDesign,
+            textColor: textColor,
+            backgroundColor: backgroundColor,
+            header: header,
+            footer: { EmptyView() }
+        )
+    }
+
+    public init(
+        chapter: AO3Chapter,
+        work: AO3Work,
+        topVisibleIndex: Binding<Int?>,
+        initialPosition: Int? = nil,
+        fontSize: CGFloat = 17,
+        fontDesign: AO3FontDesign = .default,
+        textColor: UIColor = .label,
+        backgroundColor: UIColor = .systemBackground,
+        @ViewBuilder header: () -> Header
+    ) {
+        self.init(
+            chapter: chapter,
+            work: work,
+            topVisibleIndex: topVisibleIndex,
+            initialPosition: initialPosition,
+            fontSize: fontSize,
+            fontDesign: fontDesign,
+            textColor: textColor,
+            backgroundColor: backgroundColor,
+            header: header,
+            footer: { EmptyView() }
+        )
+    }
+}
+
+// No header or footer
+extension AO3ChapterView where Header == EmptyView, Footer == EmptyView {
     public init(
         html: String,
         workSkinCSS: String? = nil,
@@ -306,7 +403,8 @@ extension AO3ChapterView where Header == EmptyView {
             fontDesign: fontDesign,
             textColor: textColor,
             backgroundColor: backgroundColor,
-            header: { EmptyView() }
+            header: { EmptyView() },
+            footer: { EmptyView() }
         )
     }
 
@@ -329,7 +427,8 @@ extension AO3ChapterView where Header == EmptyView {
             fontDesign: fontDesign,
             textColor: textColor,
             backgroundColor: backgroundColor,
-            header: { EmptyView() }
+            header: { EmptyView() },
+            footer: { EmptyView() }
         )
     }
 }

@@ -1,13 +1,78 @@
 import SwiftUI
 
+/// Set to true to show debug background colors on text elements
+private let DEBUG_SHOW_TEXT_BACKGROUNDS = false
+
 /// Renders inline text with nested formatting (bold, italic, colors, links)
 struct FormattedText: View {
     let nodes: [HTMLNode]
     let baseStyle: TextStyle
 
     var body: some View {
-        buildText(from: nodes, style: baseStyle)
-            .fixedSize(horizontal: false, vertical: true)
+        if DEBUG_SHOW_TEXT_BACKGROUNDS {
+            // Debug mode: show each text segment with background color
+            buildDebugText(from: nodes, style: baseStyle)
+                .fixedSize(horizontal: false, vertical: true)
+        } else {
+            buildText(from: nodes, style: baseStyle)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    // MARK: - Debug Text Builder (shows backgrounds via colored text)
+
+    /// Build text with debug colors showing node boundaries
+    private func buildDebugText(from nodes: [HTMLNode], style: TextStyle) -> Text {
+        var result = Text("")
+
+        for (index, node) in nodes.enumerated() {
+            result = result + debugTextForNode(node, style: style, index: index)
+        }
+
+        return result
+    }
+
+    private func debugTextForNode(_ node: HTMLNode, style: TextStyle, index: Int) -> Text {
+        switch node {
+        case .text(let string):
+            // Show text with a colored background marker
+            let debugMarker = "[\(index)]"
+            let colors: [Color] = [.yellow, .cyan, .pink, .mint, .orange, .green]
+            let color = colors[index % colors.count]
+
+            // Apply style and add visible boundary markers
+            var styledText = applyStyle(Text(string), style: style)
+
+            // Add background color effect by using foreground color blend
+            if style.isBold && style.isItalic {
+                styledText = Text("«").foregroundColor(.red) + styledText + Text("»").foregroundColor(.red)
+            } else if style.isBold {
+                styledText = Text("‹").foregroundColor(.orange) + styledText + Text("›").foregroundColor(.orange)
+            } else if style.isItalic {
+                styledText = Text("⟨").foregroundColor(.green) + styledText + Text("⟩").foregroundColor(.green)
+            }
+
+            return styledText
+
+        case .formatted(let children, let nodeStyle):
+            let mergedStyle = style.merging(nodeStyle)
+            return buildDebugText(from: children, style: mergedStyle)
+
+        case .link(_, let children):
+            var linkStyle = style
+            linkStyle.isUnderlined = true
+            linkStyle.color = ColorInfo(red: 0, green: 0.478, blue: 1.0)
+            return Text("[link:").foregroundColor(.blue) + buildDebugText(from: children, style: linkStyle) + Text("]").foregroundColor(.blue)
+
+        case .span(let children, _):
+            return Text("{span:").foregroundColor(.purple) + buildDebugText(from: children, style: style) + Text("}").foregroundColor(.purple)
+
+        case .lineBreak:
+            return Text("\n")
+
+        default:
+            return Text("")
+        }
     }
 
     /// Recursively build Text with formatting
@@ -53,13 +118,15 @@ struct FormattedText: View {
     private func applyStyle(_ text: Text, style: TextStyle) -> Text {
         var result = text
 
-        if style.isBold {
-            result = result.fontWeight(.bold)
-        }
-
+        // Apply italic BEFORE bold - in SwiftUI, applying .italic() after .fontWeight(.bold)
+        // can reset the font weight. Applying bold last ensures it takes effect.
         if style.isItalic {
             result = result.italic()
         }
+
+        // Always apply fontWeight (even .regular) to ensure proper style inheritance
+        // from parent view's foregroundStyle when concatenating Text views
+        result = result.fontWeight(style.isBold ? .bold : .regular)
 
         if style.isUnderlined {
             result = result.underline()

@@ -148,7 +148,15 @@ public struct HTMLParser: Sendable {
                 spanStyle.isRTL = true
             }
 
-            return [.span(children: try parseChildren(element, style: spanStyle, workSkin: workSkin), className: className)]
+            let children = try parseChildren(element, style: spanStyle, workSkin: workSkin)
+
+            // If span has styling (color, RTL), wrap in .formatted to preserve it
+            // Otherwise just return children directly (span is just a container)
+            if spanStyle.color != nil || spanStyle.isRTL {
+                return [.formatted(children: children, style: spanStyle)]
+            } else {
+                return children
+            }
 
         case "a":
             let href = try element.attr("href")
@@ -196,16 +204,35 @@ public struct HTMLParser: Sendable {
     /// Parse all children of an element
     private static func parseChildren(_ element: Element, style: TextStyle, workSkin: WorkSkin) throws -> [HTMLNode] {
         var result: [HTMLNode] = []
+        let children = element.getChildNodes()
 
-        for child in element.getChildNodes() {
+        for (index, child) in children.enumerated() {
             if let textNode = child as? TextNode {
-                let text = textNode.text()
-                if !text.isEmpty {
-                    if style != TextStyle() {
-                        result.append(.formatted(children: [.text(text)], style: style))
-                    } else {
-                        result.append(.text(text))
+                // Use getWholeText() to preserve whitespace at boundaries between elements
+                // e.g., "This is <b>bold</b> text" should keep spaces around "bold"
+                var text = textNode.getWholeText()
+
+                // Normalize excessive whitespace (newlines, multiple spaces) to single space
+                text = text.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+
+                // Skip whitespace-only text nodes that are just formatting whitespace
+                // (between block elements or at start/end of parent)
+                if text == " " {
+                    let isFirst = index == 0
+                    let isLast = index == children.count - 1
+
+                    // Check if adjacent to block-level elements
+                    let prevIsBlock = index > 0 && isBlockElement(children[index - 1])
+                    let nextIsBlock = index < children.count - 1 && isBlockElement(children[index + 1])
+
+                    // Skip if it's just formatting whitespace around blocks or at boundaries
+                    if isFirst || isLast || prevIsBlock || nextIsBlock {
+                        continue
                     }
+                }
+
+                if !text.isEmpty && text != " " || (text == " " && !result.isEmpty) {
+                    result.append(.text(text))
                 }
             } else if let elem = child as? Element {
                 result.append(contentsOf: try parseElement(elem, style: style, workSkin: workSkin))
@@ -213,6 +240,14 @@ public struct HTMLParser: Sendable {
         }
 
         return result
+    }
+
+    /// Check if a node is a block-level element
+    private static func isBlockElement(_ node: Node) -> Bool {
+        guard let element = node as? Element else { return false }
+        let tag = element.tagName().lowercased()
+        let blockTags = ["p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "pre", "ul", "ol", "li", "hr", "br", "table", "details"]
+        return blockTags.contains(tag)
     }
 
     /// Extract attributes from element
