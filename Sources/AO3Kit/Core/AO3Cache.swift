@@ -28,11 +28,16 @@ public protocol AO3CacheProtocol: Sendable {
 
 // MARK: - In-Memory Cache
 
-/// A thread-safe in-memory cache with size limits
+/// A thread-safe in-memory cache with size limits using FIFO eviction
 public actor AO3MemoryCache: AO3CacheProtocol {
     private var works: [Int: CacheEntry<AO3Work>] = [:]
     private var chapters: [String: CacheEntry<AO3Chapter>] = [:]
     private var users: [String: CacheEntry<AO3User>] = [:]
+
+    // Insertion order tracking for O(1) FIFO eviction
+    private var worksOrder: [Int] = []
+    private var chaptersOrder: [String] = []
+    private var usersOrder: [String] = []
 
     private let maxWorks: Int
     private let maxChapters: Int
@@ -64,25 +69,42 @@ public actor AO3MemoryCache: AO3CacheProtocol {
     public func getWork(_ id: Int) async -> AO3Work? {
         guard let entry = works[id], !entry.isExpired(ttl: ttl) else {
             works.removeValue(forKey: id)
+            // Also remove from order tracking
+            if let index = worksOrder.firstIndex(of: id) {
+                worksOrder.remove(at: index)
+            }
             return nil
         }
         return entry.value
     }
 
     public func setWork(_ work: AO3Work) async {
-        // Evict oldest if at capacity
-        if works.count >= maxWorks, works[work.id] == nil {
-            if let oldestKey = works.min(by: { $0.value.timestamp < $1.value.timestamp })?.key {
+        // If updating existing entry, don't evict or change order
+        if works[work.id] != nil {
+            works[work.id] = CacheEntry(value: work, timestamp: Date())
+            return
+        }
+
+        // Evict oldest (first in order) if at capacity using FIFO
+        if works.count >= maxWorks {
+            if let oldestKey = worksOrder.first {
                 works.removeValue(forKey: oldestKey)
+                worksOrder.removeFirst()
             }
         }
+
         works[work.id] = CacheEntry(value: work, timestamp: Date())
+        worksOrder.append(work.id)
     }
 
     public func getChapter(workID: Int, chapterID: Int) async -> AO3Chapter? {
         let key = "\(workID):\(chapterID)"
         guard let entry = chapters[key], !entry.isExpired(ttl: ttl) else {
             chapters.removeValue(forKey: key)
+            // Also remove from order tracking
+            if let index = chaptersOrder.firstIndex(of: key) {
+                chaptersOrder.remove(at: index)
+            }
             return nil
         }
         return entry.value
@@ -91,19 +113,32 @@ public actor AO3MemoryCache: AO3CacheProtocol {
     public func setChapter(_ chapter: AO3Chapter) async {
         let key = "\(chapter.workID):\(chapter.id)"
 
-        // Evict oldest if at capacity
-        if chapters.count >= maxChapters, chapters[key] == nil {
-            if let oldestKey = chapters.min(by: { $0.value.timestamp < $1.value.timestamp })?.key {
+        // If updating existing entry, don't evict or change order
+        if chapters[key] != nil {
+            chapters[key] = CacheEntry(value: chapter, timestamp: Date())
+            return
+        }
+
+        // Evict oldest (first in order) if at capacity using FIFO
+        if chapters.count >= maxChapters {
+            if let oldestKey = chaptersOrder.first {
                 chapters.removeValue(forKey: oldestKey)
+                chaptersOrder.removeFirst()
             }
         }
+
         chapters[key] = CacheEntry(value: chapter, timestamp: Date())
+        chaptersOrder.append(key)
     }
 
     public func getUser(username: String, pseud: String) async -> AO3User? {
         let key = "\(username):\(pseud)"
         guard let entry = users[key], !entry.isExpired(ttl: ttl) else {
             users.removeValue(forKey: key)
+            // Also remove from order tracking
+            if let index = usersOrder.firstIndex(of: key) {
+                usersOrder.remove(at: index)
+            }
             return nil
         }
         return entry.value
@@ -112,19 +147,31 @@ public actor AO3MemoryCache: AO3CacheProtocol {
     public func setUser(_ user: AO3User) async {
         let key = "\(user.username):\(user.pseud)"
 
-        // Evict oldest if at capacity
-        if users.count >= maxUsers, users[key] == nil {
-            if let oldestKey = users.min(by: { $0.value.timestamp < $1.value.timestamp })?.key {
+        // If updating existing entry, don't evict or change order
+        if users[key] != nil {
+            users[key] = CacheEntry(value: user, timestamp: Date())
+            return
+        }
+
+        // Evict oldest (first in order) if at capacity using FIFO
+        if users.count >= maxUsers {
+            if let oldestKey = usersOrder.first {
                 users.removeValue(forKey: oldestKey)
+                usersOrder.removeFirst()
             }
         }
+
         users[key] = CacheEntry(value: user, timestamp: Date())
+        usersOrder.append(key)
     }
 
     public func clear() async {
         works.removeAll()
         chapters.removeAll()
         users.removeAll()
+        worksOrder.removeAll()
+        chaptersOrder.removeAll()
+        usersOrder.removeAll()
     }
 }
 

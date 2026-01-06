@@ -1,15 +1,27 @@
 import Foundation
 import SwiftSoup
 
+/// Thread-safe cache configuration actor
+private actor AO3Configuration {
+    static let shared = AO3Configuration()
+    private var cache: AO3CacheProtocol?
+
+    func setCache(_ cache: AO3CacheProtocol?) {
+        self.cache = cache
+    }
+
+    func getCache() -> AO3CacheProtocol? {
+        return cache
+    }
+}
+
 /// Main API class for interacting with Archive of Our Own (AO3)
 public struct AO3 {
-    private nonisolated(unsafe) static var cache: AO3CacheProtocol?
-
     /// Configure the cache for AO3 requests
     /// - Parameter cache: The cache implementation to use, or nil to disable caching
     /// - Note: This should be called once at app startup before making any requests
-    public static func configure(cache: AO3CacheProtocol?) {
-        self.cache = cache
+    public static func configure(cache: AO3CacheProtocol?) async {
+        await AO3Configuration.shared.setCache(cache)
     }
 
     /// Retrieves a work by its ID
@@ -18,7 +30,7 @@ public struct AO3 {
     /// - Throws: AO3Exception if the work cannot be retrieved
     public static func getWork(_ workID: Int) async throws -> AO3Work {
         // Check cache first
-        if let cached = await cache?.getWork(workID) {
+        if let cached = await AO3Configuration.shared.getCache()?.getWork(workID) {
             return cached
         }
 
@@ -41,11 +53,11 @@ public struct AO3 {
                     notes: work.firstChapterNotes,
                     summary: work.firstChapterSummary
                 )
-                await cache?.setChapter(chapter)
+                await AO3Configuration.shared.getCache()?.setChapter(chapter)
             }
 
             // Store work in cache if available
-            await cache?.setWork(work)
+            await AO3Configuration.shared.getCache()?.setWork(work)
             return work
         } catch let error as AO3Exception {
             throw error
@@ -70,7 +82,7 @@ public struct AO3 {
     /// - Throws: AO3Exception if the user cannot be retrieved
     public static func getPseud(username: String, pseud: String) async throws -> AO3User {
         // Check cache first
-        if let cached = await cache?.getUser(username: username, pseud: pseud) {
+        if let cached = await AO3Configuration.shared.getCache()?.getUser(username: username, pseud: pseud) {
             return cached
         }
 
@@ -78,7 +90,7 @@ public struct AO3 {
         do {
             let user = try await AO3User(username: username, pseud: pseud)
             // Store in cache if available
-            await cache?.setUser(user)
+            await AO3Configuration.shared.getCache()?.setUser(user)
             return user
         } catch let error as AO3Exception {
             throw error
@@ -95,7 +107,7 @@ public struct AO3 {
     /// - Throws: AO3Exception if the chapter cannot be retrieved
     internal static func getChapter(workID: Int, chapterID: Int) async throws -> AO3Chapter {
         // Check cache first
-        if let cached = await cache?.getChapter(workID: workID, chapterID: chapterID) {
+        if let cached = await AO3Configuration.shared.getCache()?.getChapter(workID: workID, chapterID: chapterID) {
             return cached
         }
 
@@ -114,11 +126,11 @@ public struct AO3 {
                 parsedWork.firstChapterNotes = chapter.notes
                 parsedWork.firstChapterSummary = chapter.summary
             }
-            await cache?.setWork(parsedWork)
+            await AO3Configuration.shared.getCache()?.setWork(parsedWork)
         }
 
         // Store chapter in cache
-        await cache?.setChapter(chapter)
+        await AO3Configuration.shared.getCache()?.setChapter(chapter)
         return chapter
     }
 
@@ -243,7 +255,7 @@ public struct AO3 {
 
         // Cache the parsed works if caching is enabled
         for work in works {
-            await cache?.setWork(work)
+            await AO3Configuration.shared.getCache()?.setWork(work)
         }
 
         return works

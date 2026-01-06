@@ -2,6 +2,21 @@ import Foundation
 
 /// Parses work skin CSS to extract color definitions
 public struct CSSParser {
+    // Static regexes to avoid expensive re-compilation
+    private static let ruleRegex = try! NSRegularExpression(
+        pattern: #"(?:#workskin\s+)?(?:\w+)?\.([a-zA-Z_][\w-]*)\s*\{([^}]*)\}"#,
+        options: [.caseInsensitive]
+    )
+
+    private static let colorRegex = try! NSRegularExpression(
+        pattern: #"(?:^|;)\s*color\s*:\s*([^;]+)"#,
+        options: [.caseInsensitive]
+    )
+
+    private static let rgbRegex = try! NSRegularExpression(
+        pattern: #"rgba?\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)"#,
+        options: []
+    )
 
     /// Parse CSS string and extract color mappings for #workskin classes
     /// - Parameter css: The CSS string from a work's <style> tag
@@ -13,16 +28,8 @@ public struct CSSParser {
 
         var colorMap: [String: String] = [:]
 
-        // Pattern to find class names and their color properties
-        // This handles: #workskin .class, .class, p.class, span.class, etc.
-        let rulePattern = #"(?:#workskin\s+)?(?:\w+)?\.([a-zA-Z_][\w-]*)\s*\{([^}]*)\}"#
-
-        guard let ruleRegex = try? NSRegularExpression(pattern: rulePattern, options: [.caseInsensitive]) else {
-            return WorkSkin()
-        }
-
         let nsString = css as NSString
-        let ruleMatches = ruleRegex.matches(in: css, range: NSRange(location: 0, length: nsString.length))
+        let ruleMatches = Self.ruleRegex.matches(in: css, range: NSRange(location: 0, length: nsString.length))
 
         for match in ruleMatches {
             guard match.numberOfRanges > 2,
@@ -51,9 +58,7 @@ public struct CSSParser {
         // - color: rgba(r, g, b, a)
         // - color: colorname
 
-        let colorPattern = #"(?:^|;)\s*color\s*:\s*([^;]+)"#
-        guard let regex = try? NSRegularExpression(pattern: colorPattern, options: [.caseInsensitive]),
-              let match = regex.firstMatch(in: properties, range: NSRange(location: 0, length: properties.utf16.count)),
+        guard let match = Self.colorRegex.firstMatch(in: properties, range: NSRange(location: 0, length: properties.utf16.count)),
               match.numberOfRanges > 1,
               let valueRange = Range(match.range(at: 1), in: properties) else {
             return nil
@@ -89,9 +94,7 @@ public struct CSSParser {
 
     /// Convert rgb(r,g,b) or rgba(r,g,b,a) to hex
     private static func rgbToHex(_ rgb: String) -> String? {
-        let pattern = #"rgba?\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)"#
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []),
-              let match = regex.firstMatch(in: rgb, range: NSRange(location: 0, length: rgb.utf16.count)),
+        guard let match = Self.rgbRegex.firstMatch(in: rgb, range: NSRange(location: 0, length: rgb.utf16.count)),
               match.numberOfRanges > 3,
               let rRange = Range(match.range(at: 1), in: rgb),
               let gRange = Range(match.range(at: 2), in: rgb),

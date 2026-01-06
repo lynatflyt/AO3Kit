@@ -1,7 +1,7 @@
 import Foundation
 
 /// Various utility methods for HTTP requests and URL handling
-internal class AO3Utils {
+internal enum AO3Utils {
 
     /// Shared URLSession with cookie storage
     static let session: URLSession = {

@@ -12,6 +12,13 @@ import SwiftSoup
 /// Parses AO3 search result blurbs into AO3Work objects
 /// This is much more efficient than fetching each work individually
 internal struct AO3SearchResultParser {
+    // Static date formatter to avoid expensive re-initialization
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "dd MMM yyyy"
+        return formatter
+    }()
 
     /// Parse all work blurbs from a search results page
     /// - Parameter document: The parsed HTML document
@@ -36,7 +43,10 @@ internal struct AO3SearchResultParser {
                 let work = try AO3Work(id: workID, blurb: blurb)
                 works.append(work)
             } catch {
-                print("Error parsing blurb for work \(workID): \(error)")
+                // Silently skip works that fail to parse - this is expected when
+                // AO3's HTML structure changes or contains malformed data.
+                // The partial results are still useful to the caller.
+                continue
             }
         }
 
@@ -203,10 +213,7 @@ internal struct AO3SearchResultParser {
         do {
             if let dateP = try blurb.select("p.datetime").first() {
                 let dateText = try dateP.text()
-                let dateFormatter = DateFormatter()
-                dateFormatter.locale = Locale(identifier: "en_US_POSIX")
-                dateFormatter.dateFormat = "dd MMM yyyy"
-                if let date = dateFormatter.date(from: dateText) {
+                if let date = Self.dateFormatter.date(from: dateText) {
                     work.published = date
                     work.updated = date
                 }

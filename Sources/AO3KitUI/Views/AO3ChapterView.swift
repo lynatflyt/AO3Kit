@@ -147,8 +147,9 @@ public struct AO3ChapterView<Header: View, Footer: View>: UIViewRepresentable {
 
             // Size the header to fit
             hostingController.view.translatesAutoresizingMaskIntoConstraints = false
+            let width = tableView.bounds.width > 0 ? tableView.bounds.width : 375  // Default to iPhone width
             let size = hostingController.view.systemLayoutSizeFitting(
-                CGSize(width: UIScreen.main.bounds.width, height: UIView.layoutFittingCompressedSize.height),
+                CGSize(width: width, height: UIView.layoutFittingCompressedSize.height),
                 withHorizontalFittingPriority: .required,
                 verticalFittingPriority: .fittingSizeLevel
             )
@@ -165,8 +166,9 @@ public struct AO3ChapterView<Header: View, Footer: View>: UIViewRepresentable {
 
             // Size the footer to fit
             hostingController.view.translatesAutoresizingMaskIntoConstraints = false
+            let width = tableView.bounds.width > 0 ? tableView.bounds.width : 375  // Default to iPhone width
             let size = hostingController.view.systemLayoutSizeFitting(
-                CGSize(width: UIScreen.main.bounds.width, height: UIView.layoutFittingCompressedSize.height),
+                CGSize(width: width, height: UIView.layoutFittingCompressedSize.height),
                 withHorizontalFittingPriority: .required,
                 verticalFittingPriority: .fittingSizeLevel
             )

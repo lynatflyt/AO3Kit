@@ -3,6 +3,16 @@ import SwiftSoup
 
 /// Parses AO3 work HTML into structured data
 internal struct AO3WorkParser {
+    // Static date formatter to avoid expensive re-initialization
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
+
+    // Static regex to avoid expensive re-compilation
+    private static let pseudRegex = try! NSRegularExpression(pattern: "\\((.*?)\\)", options: [])
+
     func parse(document: Document, into work: AO3Work) async throws {
         // Parse basic metadata
         work.title = try parseTitle(from: document)
@@ -49,7 +59,6 @@ internal struct AO3WorkParser {
     }
 
     private func parseAuthors(from document: Document) throws -> [AO3User] {
-        let pseudRegex = try NSRegularExpression(pattern: "\\((.*?)\\)", options: [])
         var tempAuthors: [AO3User] = []
 
         if let byline = try document.select("h3.byline.heading").first() {
@@ -58,7 +67,7 @@ internal struct AO3WorkParser {
                 let authorText = try link.html()
                 let range = NSRange(authorText.startIndex..., in: authorText)
 
-                if let match = pseudRegex.firstMatch(in: authorText, range: range) {
+                if let match = Self.pseudRegex.firstMatch(in: authorText, range: range) {
                     if let usernameRange = Range(match.range(at: 1), in: authorText) {
                         let username = String(authorText[usernameRange])
                         let pseud = authorText.components(separatedBy: " ")[0].trimmingCharacters(in: .whitespaces)
@@ -103,20 +112,17 @@ internal struct AO3WorkParser {
     }
 
     private func parseDates(from document: Document) throws -> (published: Date, updated: Date) {
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "yyyy-MM-dd"
-
         var published = Date()
         var updated = Date()
 
         if let publishedElement = try document.select("dl.stats").first()?.select(".published").dropFirst().first {
             let publishedText = try publishedElement.html()
-            published = dateFormatter.date(from: publishedText) ?? Date()
+            published = Self.dateFormatter.date(from: publishedText) ?? Date()
         }
 
         if let statusElement = try document.select("dl.stats").first()?.select(".status").dropFirst().first {
             let statusText = try statusElement.html()
-            updated = dateFormatter.date(from: statusText) ?? published
+            updated = Self.dateFormatter.date(from: statusText) ?? published
         } else {
             updated = published
         }

@@ -3,6 +3,12 @@ import SwiftSoup
 
 /// Parses AO3 chapter HTML into structured data
 internal struct AO3ChapterParser {
+    // Static regex to avoid expensive re-compilation
+    private static let chapterTitleRegex = try! NSRegularExpression(
+        pattern: #"^Chapter\s+(\d+)(?::\s*(.*))?$"#,
+        options: []
+    )
+
     func parse(document: Document, into chapter: AO3Chapter) throws {
         let (number, title) = try parseChapterInfo(from: document)
         chapter.number = number
@@ -26,9 +32,7 @@ internal struct AO3ChapterParser {
 
         // Use regex to extract chapter number and title
         // Pattern matches "Chapter <number>: <title>" or just "Chapter <number>"
-        let pattern = #"^Chapter\s+(\d+)(?::\s*(.*))?$"#
-        if let regex = try? NSRegularExpression(pattern: pattern, options: []),
-           let match = regex.firstMatch(in: fullText, range: NSRange(fullText.startIndex..., in: fullText)) {
+        if let match = Self.chapterTitleRegex.firstMatch(in: fullText, range: NSRange(fullText.startIndex..., in: fullText)) {
 
             // Extract chapter number
             var chapterNumber = 1

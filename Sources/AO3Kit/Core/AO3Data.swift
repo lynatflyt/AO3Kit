@@ -10,7 +10,7 @@ open class AO3Data: Codable, @unchecked Sendable {
     /// - Returns: A SwiftSoup parsed Document
     /// - Throws: AO3Exception if fetching or parsing fails
     internal func getDocument() async throws -> Document {
-        return try await getDocument(buildURL(), depth: 0)
+        return try await getDocument(try buildURL(), depth: 0)
     }
 
     /// Internal method to retrieve the page.
@@ -75,8 +75,9 @@ open class AO3Data: Codable, @unchecked Sendable {
 
     /// Builds a URL that can be queried for information
     /// - Returns: The URL string
-    internal func buildURL() -> String {
-        fatalError("buildURL() must be implemented by subclasses")
+    /// - Throws: AO3Exception if buildURL is not implemented by subclass
+    internal func buildURL() throws -> String {
+        throw AO3Exception.generic("buildURL() must be implemented by subclasses of AO3Data")
     }
 
     /// Appends view_adult=true to a URL, handling existing query parameters correctly
