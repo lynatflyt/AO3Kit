@@ -205,6 +205,8 @@ public struct HTMLParser: Sendable {
     private static func parseChildren(_ element: Element, style: TextStyle, workSkin: WorkSkin) throws -> [HTMLNode] {
         var result: [HTMLNode] = []
         let children = element.getChildNodes()
+        let parentTag = element.tagName().lowercased()
+        let parentIsBlock = isBlockTag(parentTag)
 
         for (index, child) in children.enumerated() {
             if let textNode = child as? TextNode {
@@ -216,8 +218,8 @@ public struct HTMLParser: Sendable {
                 text = text.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
 
                 // Skip whitespace-only text nodes that are just formatting whitespace
-                // (between block elements or at start/end of parent)
-                if text == " " {
+                // ONLY for block-level parents - inline elements (span, em, etc.) preserve trailing spaces
+                if text == " " && parentIsBlock {
                     let isFirst = index == 0
                     let isLast = index == children.count - 1
 
@@ -225,7 +227,7 @@ public struct HTMLParser: Sendable {
                     let prevIsBlock = index > 0 && isBlockElement(children[index - 1])
                     let nextIsBlock = index < children.count - 1 && isBlockElement(children[index + 1])
 
-                    // Skip if it's just formatting whitespace around blocks or at boundaries
+                    // Skip if it's just formatting whitespace around blocks or at boundaries of block parents
                     if isFirst || isLast || prevIsBlock || nextIsBlock {
                         continue
                     }
@@ -240,6 +242,12 @@ public struct HTMLParser: Sendable {
         }
 
         return result
+    }
+
+    /// Check if a tag name is a block-level element
+    private static func isBlockTag(_ tag: String) -> Bool {
+        let blockTags = ["p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "pre", "ul", "ol", "li", "hr", "table", "details", "figure", "article", "section", "header", "footer", "nav", "main", "aside"]
+        return blockTags.contains(tag)
     }
 
     /// Check if a node is a block-level element
