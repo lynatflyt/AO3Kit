@@ -9,6 +9,14 @@
 import Foundation
 import SwiftSoup
 
+/// Pagination information parsed from search results
+internal struct AO3PaginationInfo {
+    let currentPage: Int
+    let totalPages: Int
+
+    static let empty = AO3PaginationInfo(currentPage: 1, totalPages: 1)
+}
+
 /// Parses AO3 search result blurbs into AO3Work objects
 /// This is much more efficient than fetching each work individually
 internal struct AO3SearchResultParser {
@@ -19,6 +27,64 @@ internal struct AO3SearchResultParser {
         formatter.dateFormat = "dd MMM yyyy"
         return formatter
     }()
+
+    /// Parse search results with pagination info
+    /// - Parameter document: The parsed HTML document
+    /// - Returns: AO3SearchResult containing works and pagination metadata
+    func parseSearchResultsWithPagination(from document: Document) throws -> AO3SearchResult {
+        let works = try parseSearchResults(from: document)
+        let pagination = parsePagination(from: document)
+        return AO3SearchResult(works: works, currentPage: pagination.currentPage, totalPages: pagination.totalPages)
+    }
+
+    /// Parse pagination information from the search results page
+    /// - Parameter document: The parsed HTML document
+    /// - Returns: Pagination info with current page and total pages
+    func parsePagination(from document: Document) -> AO3PaginationInfo {
+        do {
+            // Find the pagination element - it has class "pagination actions"
+            guard let paginationOL = try document.select("ol.pagination").first() else {
+                // No pagination means single page of results
+                return .empty
+            }
+
+            let listItems = try paginationOL.select("li")
+
+            var currentPage = 1
+            var totalPages = 1
+
+            for item in listItems {
+                let text = try item.text().trimmingCharacters(in: .whitespaces)
+
+                // Skip Previous/Next arrows and ellipsis
+                if text == "← Previous" || text == "Next →" || text == "…" {
+                    continue
+                }
+
+                // Check if this is the current page (no link, just text)
+                if try item.select("a").isEmpty(), let pageNum = Int(text) {
+                    currentPage = pageNum
+                }
+
+                // Track the highest page number we see
+                if let pageNum = Int(text) {
+                    totalPages = max(totalPages, pageNum)
+                }
+
+                // Also check links for page numbers (the last numbered link is often the total)
+                if let link = try item.select("a").first() {
+                    let linkText = try link.text()
+                    if let pageNum = Int(linkText) {
+                        totalPages = max(totalPages, pageNum)
+                    }
+                }
+            }
+
+            return AO3PaginationInfo(currentPage: currentPage, totalPages: totalPages)
+        } catch {
+            return .empty
+        }
+    }
 
     /// Parse all work blurbs from a search results page
     /// - Parameter document: The parsed HTML document

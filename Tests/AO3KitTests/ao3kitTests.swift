@@ -824,3 +824,98 @@ func testPreviewHelpers() throws {
     let previewUser = AO3MockData.previewUser
     #expect(!previewUser.username.isEmpty, "Preview user should have username")
 }
+
+// MARK: - Paginated Search Tests
+
+@Test("Paginated search returns pagination info")
+func testPaginatedSearchReturnsInfo() async throws {
+    // Search for a term with many results
+    let result = try await AO3.searchWorkPaginated(query: "love")
+
+    #expect(result.currentPage == 1, "First page should be page 1")
+    #expect(result.totalPages >= 1, "Should have at least 1 page")
+    #expect(!result.works.isEmpty, "Should have some results")
+
+    // Verify pagination properties
+    if result.totalPages > 1 {
+        #expect(result.hasNextPage, "Should have next page when total > 1")
+        #expect(result.nextPage == 2, "Next page should be 2")
+    }
+    #expect(!result.hasPreviousPage, "First page should not have previous")
+    #expect(result.previousPage == nil, "Previous page should be nil on first page")
+}
+
+@Test("Paginated search can fetch page 2")
+func testPaginatedSearchPage2() async throws {
+    // First get page 1 to ensure there are multiple pages
+    let page1 = try await AO3.searchWorkPaginated(query: "romance")
+
+    guard page1.totalPages > 1 else {
+        // Skip if only 1 page of results
+        return
+    }
+
+    // Fetch page 2
+    let page2 = try await AO3.searchWorkPaginated(query: "romance", page: 2)
+
+    #expect(page2.currentPage == 2, "Should be on page 2")
+    #expect(!page2.works.isEmpty, "Page 2 should have results")
+    #expect(page2.hasPreviousPage, "Page 2 should have previous page")
+    #expect(page2.previousPage == 1, "Previous page should be 1")
+
+    // Verify results are different from page 1
+    let page1IDs = Set(page1.works.map(\.id))
+    let page2IDs = Set(page2.works.map(\.id))
+    #expect(page1IDs.isDisjoint(with: page2IDs), "Page 1 and 2 should have different works")
+}
+
+@Test("Paginated search with filters")
+func testPaginatedSearchWithFilters() async throws {
+    var filters = AO3SearchFilters()
+    filters.rating = .general
+    filters.complete = .complete
+
+    let result = try await AO3.searchWorkPaginated(query: "friendship", page: 1, filters: filters)
+
+    #expect(result.currentPage == 1, "Should be on page 1")
+    #expect(result.totalPages >= 1, "Should have at least 1 page")
+
+    // All results should be valid
+    for work in result.works {
+        #expect(work.id > 0, "Work ID should be positive")
+        #expect(!work.title.isEmpty, "Work should have a title")
+    }
+}
+
+@Test("Paginated search handles single page results")
+func testPaginatedSearchSinglePage() async throws {
+    // Use a very specific query that should have few results
+    let result = try await AO3.searchWorkPaginated(query: "xyzzy12345uniquequery")
+
+    // Even if no results, pagination info should be valid
+    #expect(result.currentPage == 1, "Should be on page 1")
+    #expect(result.totalPages >= 1, "Should have at least 1 page")
+    #expect(!result.hasNextPage || result.totalPages > 1, "hasNextPage should match totalPages")
+}
+
+@Test("AO3SearchResult convenience properties")
+func testSearchResultProperties() async throws {
+    let result = try await AO3.searchWorkPaginated(query: "adventure", page: 1)
+
+    // Test that all computed properties work
+    _ = result.hasNextPage
+    _ = result.hasPreviousPage
+    _ = result.nextPage
+    _ = result.previousPage
+
+    // Verify consistency
+    if result.currentPage == 1 {
+        #expect(!result.hasPreviousPage, "Page 1 should not have previous")
+        #expect(result.previousPage == nil, "previousPage should be nil")
+    }
+
+    if result.currentPage >= result.totalPages {
+        #expect(!result.hasNextPage, "Last page should not have next")
+        #expect(result.nextPage == nil, "nextPage should be nil")
+    }
+}

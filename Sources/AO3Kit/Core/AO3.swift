@@ -174,6 +174,50 @@ public struct AO3 {
         }
     }
 
+    // MARK: - Paginated Search
+
+    /// Searches for works with pagination support (simple search)
+    /// - Parameters:
+    ///   - query: The search query
+    ///   - page: Page number (1-indexed, default 1)
+    ///   - warnings: Optional set of warning filters
+    ///   - rating: Optional rating filter
+    /// - Returns: AO3SearchResult containing works and pagination info
+    /// - Throws: AO3Exception if the search fails
+    public static func searchWorkPaginated(
+        query: String,
+        page: Int = 1,
+        warnings: Set<AO3Warning> = [],
+        rating: AO3Rating? = nil
+    ) async throws -> AO3SearchResult {
+        var filters = AO3SearchFilters()
+        filters.warnings = warnings
+        filters.rating = rating
+
+        return try await searchWorkPaginated(query: query, page: page, filters: filters)
+    }
+
+    /// Searches for works with advanced filters and pagination support
+    /// - Parameters:
+    ///   - query: The main search query
+    ///   - page: Page number (1-indexed, default 1)
+    ///   - filters: Advanced search filters
+    /// - Returns: AO3SearchResult containing works and pagination info
+    /// - Throws: AO3Exception if the search fails
+    public static func searchWorkPaginated(
+        query: String,
+        page: Int = 1,
+        filters: AO3SearchFilters
+    ) async throws -> AO3SearchResult {
+        do {
+            return try await performAdvancedSearchPaginated(query: query, page: page, filters: filters)
+        } catch let error as AO3Exception {
+            throw error
+        } catch {
+            throw AO3Exception.parsingError("Failed to search for works! Most likely a parsing error!", error)
+        }
+    }
+
     private static func performSearch(
         query: String,
         warnings: Set<AO3Warning>,
@@ -191,12 +235,28 @@ public struct AO3 {
         query: String,
         filters: AO3SearchFilters
     ) async throws -> [AO3Work] {
-        var urlString = "https://archiveofourown.org/works/search?work_search%5Bquery%5D="
+        let result = try await performAdvancedSearchPaginated(query: query, page: 1, filters: filters)
+        return result.works
+    }
+
+    private static func performAdvancedSearchPaginated(
+        query: String,
+        page: Int,
+        filters: AO3SearchFilters
+    ) async throws -> AO3SearchResult {
+        var urlString = "https://archiveofourown.org/works/search?"
+
+        // Add page parameter
+        if page > 1 {
+            urlString += "page=\(page)&"
+        }
+
+        urlString += "work_search%5Bquery%5D="
         urlString += AO3Utils.ao3URLEncode(query)
         urlString += "&"
         urlString += filters.buildURLParameters()
 
-        return try await executeSearch(urlString: urlString)
+        return try await executeSearchPaginated(urlString: urlString)
     }
 
     // MARK: - Autocomplete
@@ -235,6 +295,11 @@ public struct AO3 {
     // MARK: - Search Implementation
 
     private static func executeSearch(urlString: String) async throws -> [AO3Work] {
+        let result = try await executeSearchPaginated(urlString: urlString)
+        return result.works
+    }
+
+    private static func executeSearchPaginated(urlString: String) async throws -> AO3SearchResult {
         let (data, statusCode) = try await AO3Utils.syncRequest(urlString)
 
         guard statusCode == 200 else {
@@ -247,17 +312,15 @@ public struct AO3 {
 
         let document = try SwiftSoup.parse(body)
 
-        // Parse work metadata directly from the search result blurbs
-        // This is MUCH more efficient than fetching each work individually
-        // (1 request instead of N+1 requests)
+        // Parse work metadata and pagination from the search result page
         let parser = AO3SearchResultParser()
-        let works = try parser.parseSearchResults(from: document)
+        let result = try parser.parseSearchResultsWithPagination(from: document)
 
         // Cache the parsed works if caching is enabled
-        for work in works {
+        for work in result.works {
             await AO3Configuration.shared.getCache()?.setWork(work)
         }
 
-        return works
+        return result
     }
 }
