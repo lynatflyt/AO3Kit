@@ -55,7 +55,7 @@ internal struct AO3WorkParser {
     // MARK: - Parsing Methods
 
     private func parseTitle(from document: Document) throws -> String {
-        return try document.select("h2.title.heading").first()?.html() ?? ""
+        return try document.select("h2.title.heading").first()?.text() ?? ""
     }
 
     private func parseAuthors(from document: Document) throws -> [AO3User] {
@@ -64,7 +64,7 @@ internal struct AO3WorkParser {
         if let byline = try document.select("h3.byline.heading").first() {
             let authorLinks = try byline.select("a")
             for link in authorLinks {
-                let authorText = try link.html()
+                let authorText = try link.text()
                 let range = NSRange(authorText.startIndex..., in: authorText)
 
                 if let match = Self.pseudRegex.firstMatch(in: authorText, range: range) {
@@ -84,7 +84,7 @@ internal struct AO3WorkParser {
     }
 
     private func parseLanguage(from document: Document) throws -> String {
-        return try document.select("dd.language").first()?.html() ?? ""
+        return try document.select("dd.language").first()?.text() ?? ""
     }
 
     private func parseStats(from document: Document) throws -> [String: String] {
@@ -137,7 +137,7 @@ internal struct AO3WorkParser {
             let options = try chapterSelect.select("option")
             for (index, option) in options.enumerated() {
                 if let chapterID = Int(try option.attr("value")) {
-                    var chapterTitle = try option.html()
+                    var chapterTitle = try option.text()
                     // Chapter number is 1-indexed (first option is chapter 1)
                     let chapterNumber = index + 1
 
@@ -232,7 +232,7 @@ internal struct AO3WorkParser {
               let tag = try li.select("a.tag").first() else {
             return ""
         }
-        return try tag.html()
+        return try tag.text()
     }
 
     private func getWorkTag(_ css: String, document: Document) throws -> String {
@@ -242,7 +242,7 @@ internal struct AO3WorkParser {
               let tag = try li.select("a.tag").first() else {
             return ""
         }
-        return try tag.html()
+        return try tag.text()
     }
 
     private func getTagList(_ css: String, document: Document) throws -> [String] {
@@ -251,6 +251,6 @@ internal struct AO3WorkParser {
             return []
         }
         let items = try ul.select("li")
-        return try items.compactMap { try $0.select("a.tag").first()?.html() }
+        return try items.compactMap { try $0.select("a.tag").first()?.text() }
     }
 }
