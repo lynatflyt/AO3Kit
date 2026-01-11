@@ -1,14 +1,15 @@
 //
-//  AO3SearchResult.swift
+//  AO3WorksResult.swift
 //  AO3Kit
 //
-//  Search result container with pagination information
+//  Paginated works result container
 //
 
 import Foundation
 
-/// Contains search results along with pagination metadata
-public struct AO3SearchResult: Sendable {
+/// Contains a paginated list of works with navigation metadata
+/// Used for search results, user works, tag browsing, etc.
+public struct AO3WorksResult: Sendable {
     /// The works returned from this search page
     public let works: [AO3Work]
 
@@ -45,10 +46,14 @@ public struct AO3SearchResult: Sendable {
         self.totalPages = max(1, totalPages) // At least 1 page
     }
 
-    /// Create a search result for a single page (no pagination)
+    /// Create a result for a single page (no pagination)
     public init(works: [AO3Work]) {
         self.works = works
         self.currentPage = 1
         self.totalPages = 1
     }
 }
+
+/// Backward compatibility alias
+@available(*, deprecated, renamed: "AO3WorksResult")
+public typealias AO3SearchResult = AO3WorksResult

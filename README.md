@@ -97,13 +97,68 @@ print("HTML: \(chapter.contentHTML)")
 let user = try await AO3.getUser("username")
 
 print("Username: \(user.username)")
-print("Profile Image: \(user.imageURL)")
+print("Profile Image: \(user.imageURL?.absoluteString ?? "None")")
 print("Fandoms: \(user.fandoms.joined(separator: ", "))")
 
-// Get recent works
-for workID in user.recentWorks {
-    let work = try await AO3.getWork(workID)
-    print("Recent work: \(work.title)")
+// Stats from dashboard
+print("Works: \(user.worksCount ?? 0)")
+print("Bookmarks: \(user.bookmarksCount ?? 0)")
+print("Series: \(user.seriesCount ?? 0)")
+
+// Recent works (already parsed as AO3Work objects)
+for work in user.recentWorks {
+    print("Recent: \(work.title) (\(work.wordCount ?? 0) words)")
+}
+```
+
+### Loading Full User Profile
+
+Profile details (bio, join date, user ID) are loaded on-demand to avoid unnecessary network requests:
+
+```swift
+let user = try await AO3.getUser("username")
+
+// Load additional profile details
+try await user.loadProfile()
+
+// Now access profile-only fields
+print("Joined: \(user.joinDate?.formatted() ?? "Unknown")")
+print("User ID: \(user.userID ?? "Unknown")")
+print("Bio: \(user.bio ?? "No bio")")
+print("Pseuds: \(user.pseuds.joined(separator: ", "))")
+```
+
+### Getting a User's Works (Paginated)
+
+```swift
+// Get first page of a user's works
+let result = try await AO3.getUserWorks(username: "astolat")
+
+print("Page \(result.currentPage) of \(result.totalPages)")
+for work in result.works {
+    print("- \(work.title)")
+}
+
+// Load more pages
+if result.hasNextPage {
+    let page2 = try await AO3.getUserWorks(username: "astolat", page: 2)
+}
+```
+
+### Getting a User's Bookmarks (Paginated)
+
+```swift
+// Get first page of a user's bookmarks
+let bookmarks = try await AO3.getUserBookmarks(username: "username")
+
+print("Found \(bookmarks.works.count) bookmarked works")
+for work in bookmarks.works {
+    print("- \(work.title) (bookmarks: \(work.stats["bookmarks"] ?? "0"))")
+}
+
+// Load more pages
+if bookmarks.hasNextPage {
+    let page2 = try await AO3.getUserBookmarks(username: "username", page: 2)
 }
 ```
 
@@ -212,6 +267,25 @@ filters.kudosCount = ">100"
 filters.sortColumn = .kudos
 filters.sortDirection = .descending
 let results = try await AO3.searchWork(query: "popular", filters: filters)
+```
+
+#### Paginated Search
+
+For browsing large result sets with pagination:
+
+```swift
+// Get first page
+var filters = AO3SearchFilters()
+filters.sortColumn = .kudos
+let page1 = try await AO3.searchWorkPaginated(query: "coffee shop", page: 1, filters: filters)
+
+print("Page \(page1.currentPage) of \(page1.totalPages)")
+print("Found \(page1.works.count) works on this page")
+
+// Load next page
+if page1.hasNextPage {
+    let page2 = try await AO3.searchWorkPaginated(query: "coffee shop", page: 2, filters: filters)
+}
 ```
 
 **Available Filter Options:**
@@ -371,8 +445,8 @@ AO3Kit includes optional caching to avoid refetching data you've already loaded.
 #### Memory Cache (In-Memory)
 
 ```swift
-// Configure at app startup
-AO3.configure(cache: AO3MemoryCache(
+// Configure at app startup (async)
+await AO3.configure(cache: AO3MemoryCache(
     maxWorks: 100,       // Max works to cache
     maxChapters: 500,    // Max chapters to cache
     maxUsers: 100,       // Max users to cache
@@ -395,7 +469,7 @@ let diskCache = try AO3DiskCache(
     directory: nil,  // Uses system cache directory
     ttl: 86400       // 24 hours
 )
-AO3.configure(cache: diskCache)
+await AO3.configure(cache: diskCache)
 
 // Works the same way, but survives app restarts
 ```
@@ -417,7 +491,7 @@ class MyDatabaseCache: AO3CacheProtocol {
     // ... implement other methods
 }
 
-AO3.configure(cache: MyDatabaseCache())
+await AO3.configure(cache: MyDatabaseCache())
 ```
 
 #### Without Cache (Default)
@@ -555,10 +629,33 @@ Contains chapter content:
 
 Contains user profile information:
 - `username`: User's username
-- `pseud`: User's pseudonym
-- `imageURL`: Profile image URL
+- `pseud`: User's pseudonym (display name)
+- `imageURL`: Profile image URL (URL?)
 - `fandoms`: Array of user's fandoms
-- `recentWorks`: Array of recent work IDs
+- `recentWorks`: Array of recent AO3Work objects from dashboard
+
+**Dashboard Stats** (available immediately):
+- `worksCount`: Number of works
+- `seriesCount`: Number of series
+- `bookmarksCount`: Number of bookmarks
+- `collectionsCount`: Number of collections
+- `giftsCount`: Number of gifts
+
+**Profile Details** (call `loadProfile()` first):
+- `joinDate`: When user joined AO3
+- `userID`: User's numeric ID
+- `bio`: User's profile bio text
+- `pseuds`: Array of user's pseudonyms
+- `profileLoaded`: Whether profile has been loaded
+
+### AO3WorksResult
+
+Contains paginated results from searches, user works, or user bookmarks:
+- `works`: Array of AO3Work objects
+- `currentPage`: Current page number (1-indexed)
+- `totalPages`: Total number of pages available
+- `hasNextPage`: Whether more pages are available
+- `hasPreviousPage`: Whether previous pages exist
 
 ## Credits
 

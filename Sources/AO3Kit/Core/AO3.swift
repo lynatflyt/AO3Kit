@@ -99,6 +99,100 @@ public struct AO3 {
         }
     }
 
+    // MARK: - User Works & Bookmarks
+
+    /// Retrieves a paginated list of works by a user
+    /// - Parameters:
+    ///   - username: The username to get works for
+    ///   - page: Page number (1-indexed, default 1)
+    /// - Returns: AO3WorksResult containing works and pagination info
+    /// - Throws: AO3Exception if the works cannot be retrieved
+    public static func getUserWorks(
+        username: String,
+        page: Int = 1
+    ) async throws -> AO3WorksResult {
+        do {
+            var urlString = "https://archiveofourown.org/users/\(username)/works"
+            if page > 1 {
+                urlString += "?page=\(page)"
+            }
+
+            let (data, statusCode) = try await AO3Utils.syncRequest(urlString)
+
+            guard statusCode == 200 else {
+                if statusCode == 404 {
+                    throw AO3Exception.userNotFound(username)
+                }
+                throw AO3Exception.invalidStatusCode(statusCode, nil)
+            }
+
+            guard let body = String(data: data, encoding: .utf8) else {
+                throw AO3Exception.noBodyReturned
+            }
+
+            let document = try SwiftSoup.parse(body)
+            let parser = AO3SearchResultParser()
+            let result = try parser.parseSearchResultsWithPagination(from: document)
+
+            // Cache the parsed works
+            for work in result.works {
+                await AO3Configuration.shared.getCache()?.setWork(work)
+            }
+
+            return result
+        } catch let error as AO3Exception {
+            throw error
+        } catch {
+            throw AO3Exception.parsingError("Failed to get user works. Most likely a parsing error!", error)
+        }
+    }
+
+    /// Retrieves a paginated list of bookmarks by a user
+    /// - Parameters:
+    ///   - username: The username to get bookmarks for
+    ///   - page: Page number (1-indexed, default 1)
+    /// - Returns: AO3WorksResult containing bookmarked works and pagination info
+    /// - Throws: AO3Exception if the bookmarks cannot be retrieved
+    public static func getUserBookmarks(
+        username: String,
+        page: Int = 1
+    ) async throws -> AO3WorksResult {
+        do {
+            var urlString = "https://archiveofourown.org/users/\(username)/bookmarks"
+            if page > 1 {
+                urlString += "?page=\(page)"
+            }
+
+            let (data, statusCode) = try await AO3Utils.syncRequest(urlString)
+
+            guard statusCode == 200 else {
+                if statusCode == 404 {
+                    throw AO3Exception.userNotFound(username)
+                }
+                throw AO3Exception.invalidStatusCode(statusCode, nil)
+            }
+
+            guard let body = String(data: data, encoding: .utf8) else {
+                throw AO3Exception.noBodyReturned
+            }
+
+            let document = try SwiftSoup.parse(body)
+            let parser = AO3BookmarkParser()
+            let result = try parser.parseBookmarksWithPagination(from: document)
+
+            // Cache the parsed works
+            for work in result.works {
+                await AO3Configuration.shared.getCache()?.setWork(work)
+            }
+
+            return result
+        } catch let error as AO3Exception {
+            throw error
+        } catch {
+            throw AO3Exception.parsingError("Failed to get user bookmarks. Most likely a parsing error!", error)
+        }
+    }
+
     /// Internal method to get a chapter with caching support
     /// - Parameters:
     ///   - workID: The work ID
@@ -182,14 +276,14 @@ public struct AO3 {
     ///   - page: Page number (1-indexed, default 1)
     ///   - warnings: Optional set of warning filters
     ///   - rating: Optional rating filter
-    /// - Returns: AO3SearchResult containing works and pagination info
+    /// - Returns: AO3WorksResult containing works and pagination info
     /// - Throws: AO3Exception if the search fails
     public static func searchWorkPaginated(
         query: String,
         page: Int = 1,
         warnings: Set<AO3Warning> = [],
         rating: AO3Rating? = nil
-    ) async throws -> AO3SearchResult {
+    ) async throws -> AO3WorksResult {
         var filters = AO3SearchFilters()
         filters.warnings = warnings
         filters.rating = rating
@@ -202,13 +296,13 @@ public struct AO3 {
     ///   - query: The main search query
     ///   - page: Page number (1-indexed, default 1)
     ///   - filters: Advanced search filters
-    /// - Returns: AO3SearchResult containing works and pagination info
+    /// - Returns: AO3WorksResult containing works and pagination info
     /// - Throws: AO3Exception if the search fails
     public static func searchWorkPaginated(
         query: String,
         page: Int = 1,
         filters: AO3SearchFilters
-    ) async throws -> AO3SearchResult {
+    ) async throws -> AO3WorksResult {
         do {
             return try await performAdvancedSearchPaginated(query: query, page: page, filters: filters)
         } catch let error as AO3Exception {
@@ -243,7 +337,7 @@ public struct AO3 {
         query: String,
         page: Int,
         filters: AO3SearchFilters
-    ) async throws -> AO3SearchResult {
+    ) async throws -> AO3WorksResult {
         var urlString = "https://archiveofourown.org/works/search?"
 
         // Add page parameter
@@ -299,7 +393,7 @@ public struct AO3 {
         return result.works
     }
 
-    private static func executeSearchPaginated(urlString: String) async throws -> AO3SearchResult {
+    private static func executeSearchPaginated(urlString: String) async throws -> AO3WorksResult {
         let (data, statusCode) = try await AO3Utils.syncRequest(urlString)
 
         guard statusCode == 200 else {

@@ -125,7 +125,7 @@ func testGetUser() async throws {
 
     #expect(user.username == firstAuthor.username, "Username should match")
     #expect(user.pseud == firstAuthor.username, "Pseud should equal username when no separate pseud")
-    #expect(!user.imageURL.isEmpty, "User should have a profile image URL")
+    #expect(user.imageURL != nil, "User should have a profile image URL")
 }
 
 @Test("User should have profile data")
@@ -142,6 +142,77 @@ func testUserProfile() async throws {
     // User should have some profile data (fandoms or recent works)
     let hasProfileData = !user.fandoms.isEmpty || !user.recentWorks.isEmpty
     #expect(hasProfileData, "User should have fandoms or recent works")
+}
+
+@Test("User should have counts from sidebar")
+func testUserCounts() async throws {
+    // Use a known user with works
+    let user = try await AO3.getUser("astolat")
+
+    // User should have work count
+    #expect(user.worksCount != nil, "User should have works count")
+    #expect(user.worksCount! > 0, "User should have at least one work")
+}
+
+@Test("User recentWorks should be AO3Work objects")
+func testUserRecentWorksAreWorkObjects() async throws {
+    let user = try await AO3.getUser("astolat")
+
+    #expect(!user.recentWorks.isEmpty, "User should have recent works")
+
+    // Recent works should be fully parsed AO3Work objects
+    for work in user.recentWorks {
+        #expect(work.id > 0, "Work should have valid ID")
+        #expect(!work.title.isEmpty, "Work should have title")
+    }
+}
+
+@Test("loadProfile fetches additional profile data")
+func testLoadProfile() async throws {
+    let user = try await AO3.getUser("astolat")
+
+    #expect(!user.profileLoaded, "Profile should not be loaded initially")
+
+    try await user.loadProfile()
+
+    #expect(user.profileLoaded, "Profile should be marked as loaded")
+    #expect(user.joinDate != nil, "User should have join date after loadProfile")
+    #expect(user.userID != nil, "User should have user ID after loadProfile")
+}
+
+@Test("getUserWorks returns paginated works")
+func testGetUserWorks() async throws {
+    let result = try await AO3.getUserWorks(username: "astolat", page: 1)
+
+    #expect(!result.works.isEmpty, "Should return works")
+    #expect(result.currentPage == 1, "Should be on page 1")
+    #expect(result.totalPages >= 1, "Should have at least 1 page")
+
+    // Works should be valid
+    for work in result.works {
+        #expect(work.id > 0, "Work should have valid ID")
+        #expect(!work.title.isEmpty, "Work should have title")
+    }
+}
+
+@Test("getUserWorks pagination works correctly")
+func testGetUserWorksPagination() async throws {
+    // Get a user with many works
+    let page1 = try await AO3.getUserWorks(username: "astolat", page: 1)
+
+    guard page1.hasNextPage else {
+        // User doesn't have enough works for pagination test
+        return
+    }
+
+    let page2 = try await AO3.getUserWorks(username: "astolat", page: 2)
+
+    #expect(!page2.works.isEmpty, "Page 2 should have works")
+
+    // The key test: pages should have different works
+    let page1Ids = Set(page1.works.map { $0.id })
+    let page2Ids = Set(page2.works.map { $0.id })
+    #expect(page1Ids.isDisjoint(with: page2Ids), "Pages should have different works")
 }
 
 // MARK: - Search Tests
@@ -592,7 +663,7 @@ func testStringWorkIDExtraction() {
 func testMemoryCacheWorks() async throws {
     // Configure memory cache
     let cache = AO3MemoryCache(maxWorks: 10)
-    AO3.configure(cache: cache)
+    await AO3.configure(cache: cache)
 
     // First fetch - should hit network
     let work1 = try await AO3.getWork(68352911)
@@ -604,13 +675,13 @@ func testMemoryCacheWorks() async throws {
     #expect(work2.title == work1.title, "Cached work should match original")
 
     // Clean up - disable cache for other tests
-    AO3.configure(cache: nil)
+    await AO3.configure(cache: nil)
 }
 
 @Test("Memory cache works for chapters")
 func testMemoryCacheChapters() async throws {
     let cache = AO3MemoryCache(maxChapters: 10)
-    AO3.configure(cache: cache)
+    await AO3.configure(cache: cache)
 
     let work = try await AO3.getWork(68352911)
     guard let firstChapter = work.chapters.first else {
@@ -627,13 +698,13 @@ func testMemoryCacheChapters() async throws {
     #expect(chapter2.content == chapter1.content, "Cached chapter should match")
 
     // Clean up
-    AO3.configure(cache: nil)
+    await AO3.configure(cache: nil)
 }
 
 @Test("Memory cache works for users")
 func testMemoryCacheUsers() async throws {
     let cache = AO3MemoryCache(maxUsers: 10)
-    AO3.configure(cache: cache)
+    await AO3.configure(cache: cache)
 
     let work = try await AO3.getWork(68352911)
     guard let firstAuthor = work.authors.first else {
@@ -650,13 +721,13 @@ func testMemoryCacheUsers() async throws {
     #expect(user2.username == user1.username, "Cached user should match")
 
     // Clean up
-    AO3.configure(cache: nil)
+    await AO3.configure(cache: nil)
 }
 
 @Test("Cache can be cleared")
 func testCacheClear() async throws {
     let cache = AO3MemoryCache()
-    AO3.configure(cache: cache)
+    await AO3.configure(cache: cache)
 
     // Fetch and cache a work
     let work = try await AO3.getWork(68352911)
@@ -670,13 +741,13 @@ func testCacheClear() async throws {
     #expect(workAgain.id == 68352911)
 
     // Clean up
-    AO3.configure(cache: nil)
+    await AO3.configure(cache: nil)
 }
 
 @Test("Works without cache (default)")
 func testWorksWithoutCache() async throws {
     // Ensure no cache is configured
-    AO3.configure(cache: nil)
+    await AO3.configure(cache: nil)
 
     // Should work fine without cache
     let work = try await AO3.getWork(68352911)
@@ -693,7 +764,7 @@ func testDiskCache() async throws {
         .appendingPathComponent("AO3KitTestCache_\(UUID().uuidString)", isDirectory: true)
 
     let diskCache = try AO3DiskCache(directory: tempDir, ttl: 3600)
-    AO3.configure(cache: diskCache)
+    await AO3.configure(cache: diskCache)
 
     // Fetch and cache a work
     let work1 = try await AO3.getWork(68352911)
@@ -706,7 +777,7 @@ func testDiskCache() async throws {
     // Clean up
     await diskCache.clear()
     try? FileManager.default.removeItem(at: tempDir)
-    AO3.configure(cache: nil)
+    await AO3.configure(cache: nil)
 }
 
 @available(macOS 12.0, iOS 15.0, *)
@@ -898,7 +969,7 @@ func testPaginatedSearchSinglePage() async throws {
     #expect(!result.hasNextPage || result.totalPages > 1, "hasNextPage should match totalPages")
 }
 
-@Test("AO3SearchResult convenience properties")
+@Test("AO3WorksResult convenience properties")
 func testSearchResultProperties() async throws {
     let result = try await AO3.searchWorkPaginated(query: "adventure", page: 1)
 

@@ -30,12 +30,9 @@ internal struct AO3MockDataFactory {
                 [
                     "username": username,
                     "pseud": username,
-                    "imageURL": "",
-                    "location": "",
-                    "joinDate": "",
-                    "fandoms": [],
-                    "recentWorks": []
-                ]
+                    "fandoms": [] as [String],
+                    "recentWorks": [] as [[String: Any]]
+                ] as [String: Any]
             },
             "archiveWarning": warning.rawValue,
             "rating": rating.rawValue,
@@ -100,23 +97,53 @@ internal struct AO3MockDataFactory {
     static func createMockUser(
         username: String,
         pseud: String,
-        imageURL: String,
+        imageURL: String?,
         location: String,
         joinDate: String,
         fandoms: [String],
         recentWorks: [Int]
     ) throws -> AO3User {
-        let json: [String: Any] = [
+        // Build recentWorks as simple work objects (just need id and title for mock)
+        let recentWorkObjects: [[String: Any]] = recentWorks.map { workId in
+            [
+                "id": workId,
+                "title": "Mock Work \(workId)",
+                "authors": [] as [[String: Any]],
+                "archiveWarning": AO3Warning.none.rawValue,
+                "rating": AO3Rating.notRated.rawValue,
+                "category": AO3Category.none.rawValue,
+                "fandom": "Original Work",
+                "relationships": [] as [String],
+                "characters": [] as [String],
+                "additionalTags": [] as [String],
+                "language": "English",
+                "stats": [:] as [String: String],
+                "published": "2024-01-01",
+                "updated": "2024-01-01",
+                "chapters": [] as [[String: Any]]
+            ]
+        }
+
+        var json: [String: Any] = [
             "username": username,
             "pseud": pseud,
-            "imageURL": imageURL,
-            "location": location,
-            "joinDate": joinDate,
             "fandoms": fandoms,
-            "recentWorks": recentWorks
+            "recentWorks": recentWorkObjects,
+            "profileLoaded": false
         ]
 
+        // Only include imageURL if it's a valid URL
+        if let urlString = imageURL, !urlString.isEmpty, URL(string: urlString) != nil {
+            json["imageURL"] = urlString
+        }
+
         let data = try JSONSerialization.data(withJSONObject: json)
-        return try JSONDecoder().decode(AO3User.self, from: data)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .formatted({
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy-MM-dd"
+            return formatter
+        }())
+        return try decoder.decode(AO3User.self, from: data)
     }
 }

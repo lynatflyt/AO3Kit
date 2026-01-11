@@ -30,11 +30,11 @@ internal struct AO3SearchResultParser {
 
     /// Parse search results with pagination info
     /// - Parameter document: The parsed HTML document
-    /// - Returns: AO3SearchResult containing works and pagination metadata
-    func parseSearchResultsWithPagination(from document: Document) throws -> AO3SearchResult {
+    /// - Returns: AO3WorksResult containing works and pagination metadata
+    func parseSearchResultsWithPagination(from document: Document) throws -> AO3WorksResult {
         let works = try parseSearchResults(from: document)
         let pagination = parsePagination(from: document)
-        return AO3SearchResult(works: works, currentPage: pagination.currentPage, totalPages: pagination.totalPages)
+        return AO3WorksResult(works: works, currentPage: pagination.currentPage, totalPages: pagination.totalPages)
     }
 
     /// Parse pagination information from the search results page
