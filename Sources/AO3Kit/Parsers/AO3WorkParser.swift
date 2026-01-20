@@ -50,9 +50,26 @@ internal struct AO3WorkParser {
         work.firstChapterHTML = html
         work.firstChapterNotes = try parseFirstChapterNotes(from: document)
         work.firstChapterSummary = try parseFirstChapterSummary(from: document)
+        
+        // Parse kudos token
+        // If the form/token exists, the user hasn't left kudos yet (or can leave more as guest)
+        // If it's missing, the user has likely already left kudos
+        work.kudosAuthenticityToken = parseKudosToken(from: document)
+        work.userHasLeftKudos = (work.kudosAuthenticityToken == nil)
     }
 
     // MARK: - Parsing Methods
+    
+    private func parseKudosToken(from document: Document) -> String? {
+        do {
+            if let kudosForm = try document.select("form#new_kudo").first() {
+                return try kudosForm.select("input[name=authenticity_token]").attr("value")
+            }
+        } catch {
+            return nil
+        }
+        return nil
+    }
 
     private func parseTitle(from document: Document) throws -> String {
         return try document.select("h2.title.heading").first()?.text() ?? ""

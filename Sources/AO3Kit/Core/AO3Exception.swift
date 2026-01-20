@@ -10,6 +10,11 @@ public enum AO3Exception: Error, LocalizedError {
     case chapterNotFound(Int)
     case tooManyRedirects
     case registeredUsersOnly
+    case authenticationFailed(String)
+    case sessionExpired
+    case notAuthenticated
+    case csrfTokenNotFound
+    case csrfTokenExpired
     case generic(String)
 
     public var errorDescription: String? {
@@ -36,6 +41,16 @@ public enum AO3Exception: Error, LocalizedError {
             return "Too many redirects in adult work confirmation!"
         case .registeredUsersOnly:
             return "This work is only available to registered users!"
+        case .authenticationFailed(let reason):
+            return "Authentication failed: \(reason)"
+        case .sessionExpired:
+            return "Your session has expired. Please log in again."
+        case .notAuthenticated:
+            return "You must be logged in to perform this action."
+        case .csrfTokenNotFound:
+            return "Could not extract authentication token from login page."
+        case .csrfTokenExpired:
+            return "Your session token has expired. Please try again."
         case .generic(let message):
             return message
         }

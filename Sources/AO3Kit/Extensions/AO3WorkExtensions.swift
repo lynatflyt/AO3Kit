@@ -1,5 +1,9 @@
 import Foundation
 
+// MARK: - Identifiable Conformance
+
+extension AO3Work: Identifiable {}
+
 // MARK: - AO3Work Extensions
 
 extension AO3Work {

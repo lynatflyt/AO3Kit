@@ -182,6 +182,9 @@ public class AO3User: AO3Data, @unchecked Sendable {
 
         let document = try SwiftSoup.parse(body)
 
+        // Passively validate session from the parsed page
+        await AO3.validateSession(from: document)
+
         // Parse profile meta (join date, user ID)
         if let metaDL = try document.select("dl.meta").first() {
             let dts = try metaDL.select("dt")

@@ -131,6 +131,10 @@ public struct AO3 {
             }
 
             let document = try SwiftSoup.parse(body)
+
+            // Passively validate session from the parsed page
+            await AO3.validateSession(from: document)
+
             let parser = AO3SearchResultParser()
             let result = try parser.parseSearchResultsWithPagination(from: document)
 
@@ -177,6 +181,10 @@ public struct AO3 {
             }
 
             let document = try SwiftSoup.parse(body)
+
+            // Passively validate session from the parsed page
+            await AO3.validateSession(from: document)
+
             let parser = AO3BookmarkParser()
             let result = try parser.parseBookmarksWithPagination(from: document)
 
@@ -405,6 +413,9 @@ public struct AO3 {
         }
 
         let document = try SwiftSoup.parse(body)
+
+        // Passively validate session from the parsed page
+        await AO3.validateSession(from: document)
 
         // Parse work metadata and pagination from the search result page
         let parser = AO3SearchResultParser()

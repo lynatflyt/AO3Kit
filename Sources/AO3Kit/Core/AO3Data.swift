@@ -49,7 +49,12 @@ open class AO3Data: Codable, @unchecked Sendable {
             throw AO3Exception.registeredUsersOnly
         }
 
-        return try SwiftSoup.parse(body)
+        let document = try SwiftSoup.parse(body)
+
+        // Passively validate session from every parsed page
+        await AO3.validateSession(from: document)
+
+        return document
     }
 
     /// Converts this object to JSON

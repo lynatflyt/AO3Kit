@@ -35,6 +35,41 @@ internal enum AO3Utils {
         return (data, httpResponse.statusCode)
     }
 
+    /// Performs a synchronous HTTP POST request with form data
+    /// - Parameters:
+    ///   - urlString: The URL to request
+    ///   - formData: Dictionary of form fields to submit
+    /// - Returns: Tuple containing the response data and HTTP status code
+    /// - Throws: AO3Exception if the request fails
+    static func postRequest(_ urlString: String, formData: [String: String]) async throws -> (Data, Int) {
+        guard let url = URL(string: urlString) else {
+            throw AO3Exception.generic("Invalid URL: \(urlString)")
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+                        forHTTPHeaderField: "User-Agent")
+        request.setValue("application/x-www-form-urlencoded",
+                        forHTTPHeaderField: "Content-Type")
+
+        // Encode form data as URL-encoded body
+        let bodyParts = formData.map { key, value in
+            let encodedKey = key.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? key
+            let encodedValue = value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? value
+            return "\(encodedKey)=\(encodedValue)"
+        }
+        request.httpBody = bodyParts.joined(separator: "&").data(using: .utf8)
+
+        let (data, response) = try await session.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw AO3Exception.generic("Invalid response type")
+        }
+
+        return (data, httpResponse.statusCode)
+    }
+
     /// Encodes a string for use in AO3 URLs
     /// - Parameter string: The string to encode
     /// - Returns: URL-encoded string with AO3-specific formatting
