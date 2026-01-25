@@ -1,17 +1,31 @@
 import SwiftUI
+import UIKit // Added unconditionally
 
 /// Converts HTMLNode tree to SwiftUI views
 struct HTMLViewBuilder {
 
     /// Build SwiftUI views from parsed HTML nodes
-    static func buildViews(from nodes: [HTMLNode], context: RenderContext = RenderContext()) -> [AnyView] {
+    static func buildViews(
+        from nodes: [HTMLNode],
+        context: RenderContext = RenderContext(),
+        textSelectionEnabled: Bool = false,
+        textAlignment: TextAlignment = .leading
+    ) -> [AnyView] {
         // Group consecutive inline nodes together, but split on line breaks for proper spacing
         var result: [AnyView] = []
         var inlineBuffer: [HTMLNode] = []
 
         func flushInlineBuffer() {
             if !inlineBuffer.isEmpty {
-                result.append(AnyView(FormattedText(nodes: inlineBuffer, baseStyle: context.currentStyle)))
+                result.append(AnyView(
+                    buildTextView(
+                        nodes: inlineBuffer,
+                        baseStyle: context.currentStyle,
+                        context: context,
+                        textSelectionEnabled: textSelectionEnabled,
+                        textAlignment: textAlignment
+                    )
+                ))
                 inlineBuffer.removeAll()
             }
         }
@@ -21,7 +35,7 @@ struct HTMLViewBuilder {
                 // Flush any buffered inline nodes first
                 flushInlineBuffer()
                 // Add the block node
-                result.append(AnyView(buildView(from: node, context: context)))
+                result.append(AnyView(buildView(from: node, context: context, textSelectionEnabled: textSelectionEnabled, textAlignment: textAlignment)))
             } else {
                 // Buffer inline nodes
                 inlineBuffer.append(node)
@@ -34,41 +48,87 @@ struct HTMLViewBuilder {
         return result
     }
 
+    /// Build the appropriate text view based on alignment
+    /// Uses JustifiedFormattedText for justified alignment (UITextView-based),
+    /// FormattedText for other alignments (SwiftUI Text-based)
+    @ViewBuilder
+    private static func buildTextView(
+        nodes: [HTMLNode],
+        baseStyle: TextStyle,
+        context: RenderContext,
+        textSelectionEnabled: Bool,
+        textAlignment: TextAlignment
+    ) -> some View {
+        if textAlignment == .justified {
+            JustifiedFormattedText(
+                nodes: nodes,
+                baseStyle: baseStyle,
+                fontSize: context.fontSize,
+                fontDesign: context.fontDesign,
+                textColor: context.textColor,
+                backgroundColor: context.backgroundColor,
+                textSelectionEnabled: textSelectionEnabled,
+                alignment: textAlignment
+            )
+        } else {
+            FormattedText(
+                nodes: nodes,
+                baseStyle: baseStyle,
+                textSelectionEnabled: textSelectionEnabled
+            )
+            .multilineTextAlignment(swiftUITextAlignment(from: textAlignment))
+        }
+    }
+
     /// Build a single view from a node (returns AnyView to avoid @ViewBuilder complexity)
-    private static func buildView(from node: HTMLNode, context: RenderContext) -> AnyView {
+    private static func buildView(
+        from node: HTMLNode,
+        context: RenderContext,
+        textSelectionEnabled: Bool,
+        textAlignment: TextAlignment
+    ) -> AnyView {
         switch node {
         // Block elements
         case .paragraph(let children):
             return AnyView(
-                FormattedText(nodes: children, baseStyle: context.currentStyle)
-                    .padding(.bottom, 8)
+                buildTextView(
+                    nodes: children,
+                    baseStyle: context.currentStyle,
+                    context: context,
+                    textSelectionEnabled: textSelectionEnabled,
+                    textAlignment: textAlignment
+                )
+                .padding(.bottom, 8)
             )
 
         case .heading(let level, let children):
             // Use relative font size multipliers instead of fixed font styles
+            // Headings always use regular FormattedText (not justified)
             let sizeMultiplier = fontSizeForHeading(level)
             return AnyView(
-                FormattedText(nodes: children, baseStyle: context.currentStyle)
+                FormattedText(nodes: children, baseStyle: context.currentStyle, textSelectionEnabled: textSelectionEnabled)
                     .font(.system(size: 17 * sizeMultiplier, weight: .bold))
                     .padding(.bottom, level <= 2 ? 12 : 8)
                     .padding(.top, level <= 2 ? 8 : 4)
             )
 
         case .blockquote(let children):
-            return AnyView(HTMLBlockquote(children: children, context: context))
+            return AnyView(HTMLBlockquote(children: children, context: context, textSelectionEnabled: textSelectionEnabled, textAlignment: textAlignment))
 
         case .codeBlock(let code, let language):
-            return AnyView(HTMLCodeBlock(code: code, language: language))
+            return AnyView(HTMLCodeBlock(code: code, language: language, textSelectionEnabled: textSelectionEnabled))
 
         case .preformatted(let text):
-            return AnyView(
-                Text(text)
-                    .font(.system(.body, design: .monospaced))
-                    .padding(12)
-                    .background(Color.secondary.opacity(0.1))
-                    .cornerRadius(8)
-                    .padding(.vertical, 4)
-            )
+            let textView = Text(text)
+                .font(.system(.body, design: .monospaced))
+                .padding(12)
+                .background(Color.secondary.opacity(0.1))
+                .cornerRadius(8)
+                .padding(.vertical, 4)
+            if textSelectionEnabled {
+                return AnyView(textView.textSelection(.enabled))
+            }
+            return AnyView(textView)
 
         case .horizontalRule:
             return AnyView(
@@ -77,26 +137,34 @@ struct HTMLViewBuilder {
             )
 
         case .list(let ordered, let items):
-            return AnyView(HTMLList(ordered: ordered, items: items, depth: context.listDepth))
+            return AnyView(HTMLList(ordered: ordered, items: items, depth: context.listDepth, textSelectionEnabled: textSelectionEnabled, textAlignment: textAlignment))
 
         case .div(let children, let attributes):
-            return AnyView(buildDivView(children: children, attributes: attributes, context: context))
+            return AnyView(buildDivView(children: children, attributes: attributes, context: context, textSelectionEnabled: textSelectionEnabled, textAlignment: textAlignment))
 
         case .details(let summary, let content):
-            return AnyView(HTMLDetails(summary: summary, content: content))
+            return AnyView(HTMLDetails(summary: summary, content: content, textSelectionEnabled: textSelectionEnabled, textAlignment: textAlignment))
 
         // Inline elements shouldn't appear at top level
         case .text, .formatted, .link, .lineBreak, .span, .listItem:
-            return AnyView(FormattedText(nodes: [node], baseStyle: context.currentStyle))
+            return AnyView(
+                buildTextView(
+                    nodes: [node],
+                    baseStyle: context.currentStyle,
+                    context: context,
+                    textSelectionEnabled: textSelectionEnabled,
+                    textAlignment: textAlignment
+                )
+            )
         }
     }
 
-    private static func buildDivView(children: [HTMLNode], attributes: [String: String], context: RenderContext) -> some View {
-        let alignment = textAlignment(from: attributes["align"])
+    private static func buildDivView(children: [HTMLNode], attributes: [String: String], context: RenderContext, textSelectionEnabled: Bool, textAlignment: TextAlignment) -> some View {
+        let alignment = htmlAlignment(from: attributes["align"])
 
         return VStack(alignment: .leading, spacing: 4) {
             ForEach(Array(children.enumerated()), id: \.offset) { _, child in
-                buildView(from: child, context: context)
+                buildView(from: child, context: context, textSelectionEnabled: textSelectionEnabled, textAlignment: textAlignment)
             }
         }
         .frame(maxWidth: .infinity, alignment: swiftUIAlignment(from: alignment))
@@ -116,7 +184,7 @@ struct HTMLViewBuilder {
         }
     }
 
-    private static func textAlignment(from string: String?) -> TextAlignment {
+    private static func htmlAlignment(from string: String?) -> TextAlignment {
         guard let string = string else { return .leading }
         switch string.lowercased() {
         case "center": return .center
@@ -130,7 +198,16 @@ struct HTMLViewBuilder {
         switch alignment {
         case .center: return .center
         case .trailing: return .trailing
+        case .leading, .justified: return .leading
+        }
+    }
+
+    private static func swiftUITextAlignment(from alignment: TextAlignment) -> SwiftUI.TextAlignment {
+        switch alignment {
         case .leading: return .leading
+        case .center: return .center
+        case .trailing: return .trailing
+        case .justified: return .leading // Fallback, shouldn't reach here
         }
     }
 }

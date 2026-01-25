@@ -4,6 +4,7 @@ import SwiftUI
 struct HTMLCodeBlock: View {
     let code: String
     let language: String?
+    var textSelectionEnabled: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -16,9 +17,14 @@ struct HTMLCodeBlock: View {
             }
 
             ScrollView(.horizontal, showsIndicators: false) {
-                Text(code)
+                let codeText = Text(code)
                     .font(.system(.body, design: .monospaced))
                     .padding(12)
+                if textSelectionEnabled {
+                    codeText.textSelection(.enabled)
+                } else {
+                    codeText
+                }
             }
         }
         .background(Color.secondary.opacity(0.1))

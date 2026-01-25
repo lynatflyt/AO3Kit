@@ -1,52 +1,18 @@
 import SwiftUI
-import UIKit
 import AO3Kit
+import UIKit // Added unconditionally
 
-/// Font design options that map to both SwiftUI and UIKit
-public enum AO3FontDesign: String, Sendable {
-    case `default`
-    case serif
-    case rounded
-
-    var uiFontDescriptorDesign: UIFontDescriptor.SystemDesign {
-        switch self {
-        case .default: return .default
-        case .serif: return .serif
-        case .rounded: return .rounded
-        }
-    }
-
-    var swiftUIDesign: Font.Design {
-        switch self {
-        case .default: return .default
-        case .serif: return .serif
-        case .rounded: return .rounded
-        }
-    }
-}
-
-/// A high-performance reader view backed by UITableView
+/// A high-performance reader view backed by a single UITextView
 ///
-/// This view provides smooth scrolling for chapter content by using UIKit's
-/// UITableView directly. Position tracking only occurs when scrolling stops,
-/// eliminating stutter during scroll.
-///
-/// Example usage:
-/// ```swift
-/// AO3ChapterView(
-///     chapter: chapter,
-///     work: work,
-///     topVisibleIndex: $scrollPosition,
-///     initialPosition: savedPosition,
-///     fontSize: 18,
-///     fontDesign: .serif,
-///     textColor: .label,
-///     backgroundColor: .systemBackground
-/// )
-/// ```
+/// This view renders the entire chapter as a single rich text document, allowing
+/// for correct multi-line selection and native text handling.
 public struct AO3ChapterView<Header: View, Footer: View>: UIViewRepresentable {
-    private let views: [AnyView]
+    private let attributedContent: NSAttributedString?
     private let parseError: Error?
+
+    /// Unique ID for this content - used to detect when content actually changes
+    /// without expensive O(n) attributed string comparison
+    private let contentID: Int
 
     @Binding var topVisibleIndex: Int?
     let initialPosition: Int?
@@ -54,8 +20,18 @@ public struct AO3ChapterView<Header: View, Footer: View>: UIViewRepresentable {
     let fontDesign: AO3FontDesign
     let textColor: UIColor
     let backgroundColor: UIColor
+    let textSelectionEnabled: Bool
+    let textAlignment: AO3TextAlignment
     let headerView: Header?
     let footerView: Footer?
+
+    /// Optional callback for custom "Share as Quote" functionality
+    /// When provided, adds a "Share as Quote" option to the text selection menu
+    /// The callback receives the selected text string
+    let onShareQuote: ((String) -> Void)?
+
+    /// Maximum character count for showing the share quote option (default: 500)
+    let shareQuoteMaxLength: Int
 
     public init(
         html: String,
@@ -66,14 +42,36 @@ public struct AO3ChapterView<Header: View, Footer: View>: UIViewRepresentable {
         fontDesign: AO3FontDesign = .default,
         textColor: UIColor = .label,
         backgroundColor: UIColor = .systemBackground,
+        textSelectionEnabled: Bool = false,
+        textAlignment: AO3TextAlignment = .leading,
+        onShareQuote: ((String) -> Void)? = nil,
+        shareQuoteMaxLength: Int = 500,
         @ViewBuilder header: () -> Header,
         @ViewBuilder footer: () -> Footer
     ) {
+        // Generate content ID from inputs that affect the attributed string
+        // This avoids expensive O(n) NSAttributedString comparison
+        var hasher = Hasher()
+        hasher.combine(html)
+        hasher.combine(workSkinCSS)
+        hasher.combine(fontSize)
+        hasher.combine(fontDesign)
+        hasher.combine(textColor.hashValue)
+        hasher.combine(textAlignment)
+        self.contentID = hasher.finalize()
+
         do {
-            self.views = try AO3HTMLRenderer.parse(html, workSkinCSS: workSkinCSS)
+            self.attributedContent = try AO3HTMLRenderer.parseToAttributed(
+                html,
+                workSkinCSS: workSkinCSS,
+                fontSize: fontSize,
+                fontDesign: fontDesign,
+                textColor: textColor,
+                textAlignment: textAlignment
+            )
             self.parseError = nil
         } catch {
-            self.views = []
+            self.attributedContent = nil
             self.parseError = error
         }
         self._topVisibleIndex = topVisibleIndex
@@ -82,10 +80,15 @@ public struct AO3ChapterView<Header: View, Footer: View>: UIViewRepresentable {
         self.fontDesign = fontDesign
         self.textColor = textColor
         self.backgroundColor = backgroundColor
+        self.textSelectionEnabled = textSelectionEnabled
+        self.textAlignment = textAlignment
+        self.onShareQuote = onShareQuote
+        self.shareQuoteMaxLength = shareQuoteMaxLength
         self.headerView = header()
         self.footerView = footer()
     }
 
+    // Convenience init for Chapter object
     public init(
         chapter: AO3Chapter,
         work: AO3Work,
@@ -95,6 +98,10 @@ public struct AO3ChapterView<Header: View, Footer: View>: UIViewRepresentable {
         fontDesign: AO3FontDesign = .default,
         textColor: UIColor = .label,
         backgroundColor: UIColor = .systemBackground,
+        textSelectionEnabled: Bool = false,
+        textAlignment: AO3TextAlignment = .leading,
+        onShareQuote: ((String) -> Void)? = nil,
+        shareQuoteMaxLength: Int = 500,
         @ViewBuilder header: () -> Header,
         @ViewBuilder footer: () -> Footer
     ) {
@@ -107,6 +114,10 @@ public struct AO3ChapterView<Header: View, Footer: View>: UIViewRepresentable {
             fontDesign: fontDesign,
             textColor: textColor,
             backgroundColor: backgroundColor,
+            textSelectionEnabled: textSelectionEnabled,
+            textAlignment: textAlignment,
+            onShareQuote: onShareQuote,
+            shareQuoteMaxLength: shareQuoteMaxLength,
             header: header,
             footer: footer
         )
@@ -116,222 +127,252 @@ public struct AO3ChapterView<Header: View, Footer: View>: UIViewRepresentable {
         Coordinator(self)
     }
 
-    public func makeUIView(context: Context) -> UITableView {
-        let tableView = UITableView(frame: .zero, style: .plain)
-        tableView.dataSource = context.coordinator
-        tableView.delegate = context.coordinator
-        tableView.separatorStyle = .none
-        tableView.backgroundColor = backgroundColor
-        tableView.showsVerticalScrollIndicator = true
+    public func makeUIView(context: Context) -> UITextView {
+        let textView = UITextView()
+        textView.isEditable = false
+        textView.isSelectable = true // Always allow selection logic, controlled via delegate or property
+        textView.backgroundColor = backgroundColor
+        textView.textContainer.lineFragmentPadding = 0
+        textView.textContainerInset = .zero
 
-        // Allow content to scroll under navigation bar while respecting safe area
-        tableView.contentInsetAdjustmentBehavior = .scrollableAxes
-        tableView.contentInset.bottom = 80
+        // Remove padding to fix "cropping" issues at edges
+        textView.contentInset = UIEdgeInsets(top: 0, left: 20, bottom: 80, right: 20)
 
-        // Register cell
-        tableView.register(HostingCell.self, forCellReuseIdentifier: "ContentCell")
+        textView.delegate = context.coordinator
 
-        // Store views in coordinator
-        context.coordinator.views = views
-        context.coordinator.fontSize = fontSize
-        context.coordinator.fontDesign = fontDesign
-        context.coordinator.textColor = textColor
-        context.coordinator.backgroundColor = backgroundColor
-        context.coordinator.tableView = tableView
-
-        // Set up header view if provided
+        // Setup Header/Footer Controllers
         if let headerView = headerView {
-            let hostingController = UIHostingController(rootView: AnyView(headerView))
-            hostingController.view.backgroundColor = backgroundColor
-            context.coordinator.headerHostingController = hostingController
-
-            // Size the header to fit
-            hostingController.view.translatesAutoresizingMaskIntoConstraints = false
-            let width = tableView.bounds.width > 0 ? tableView.bounds.width : 375  // Default to iPhone width
-            let size = hostingController.view.systemLayoutSizeFitting(
-                CGSize(width: width, height: UIView.layoutFittingCompressedSize.height),
-                withHorizontalFittingPriority: .required,
-                verticalFittingPriority: .fittingSizeLevel
-            )
-            hostingController.view.frame = CGRect(origin: .zero, size: size)
-            hostingController.view.translatesAutoresizingMaskIntoConstraints = true
-            tableView.tableHeaderView = hostingController.view
+            let hc = UIHostingController(rootView: AnyView(headerView))
+            hc.view.backgroundColor = .clear
+            hc.view.translatesAutoresizingMaskIntoConstraints = false
+            context.coordinator.headerController = hc
+            textView.addSubview(hc.view)
         }
 
-        // Set up footer view if provided
         if let footerView = footerView {
-            let hostingController = UIHostingController(rootView: AnyView(footerView))
-            hostingController.view.backgroundColor = backgroundColor
-            context.coordinator.footerHostingController = hostingController
-
-            // Size the footer to fit
-            hostingController.view.translatesAutoresizingMaskIntoConstraints = false
-            let width = tableView.bounds.width > 0 ? tableView.bounds.width : 375  // Default to iPhone width
-            let size = hostingController.view.systemLayoutSizeFitting(
-                CGSize(width: width, height: UIView.layoutFittingCompressedSize.height),
-                withHorizontalFittingPriority: .required,
-                verticalFittingPriority: .fittingSizeLevel
-            )
-            hostingController.view.frame = CGRect(origin: .zero, size: size)
-            hostingController.view.translatesAutoresizingMaskIntoConstraints = true
-            tableView.tableFooterView = hostingController.view
+            let fc = UIHostingController(rootView: AnyView(footerView))
+            fc.view.backgroundColor = .clear
+            fc.view.translatesAutoresizingMaskIntoConstraints = false
+            context.coordinator.footerController = fc
+            textView.addSubview(fc.view)
         }
 
-        return tableView
+        return textView
     }
 
-    public func updateUIView(_ tableView: UITableView, context: Context) {
+    public func updateUIView(_ textView: UITextView, context: Context) {
         let coordinator = context.coordinator
-
-        // Check if styling changed
-        let stylingChanged = coordinator.fontSize != fontSize ||
-                            coordinator.fontDesign != fontDesign ||
-                            coordinator.textColor != textColor ||
-                            coordinator.backgroundColor != backgroundColor
-
-        // Update coordinator properties
         coordinator.parent = self
-        coordinator.fontSize = fontSize
-        coordinator.fontDesign = fontDesign
-        coordinator.textColor = textColor
-        coordinator.backgroundColor = backgroundColor
 
-        // Scroll to initial position once
-        if !coordinator.didInitialScroll, let position = initialPosition, position > 0 {
+        // Check if content actually changed using fast hash comparison (O(1))
+        // instead of expensive NSAttributedString comparison (O(n))
+        let contentChanged = coordinator.lastContentID != contentID
+        if contentChanged {
+            coordinator.lastContentID = contentID
+            coordinator.needsTextHeightRecalculation = true
+            textView.attributedText = attributedContent
+            // Force layout to apply content insets immediately
+            textView.layoutIfNeeded()
+        }
+
+        textView.backgroundColor = backgroundColor
+        textView.isSelectable = textSelectionEnabled
+
+        // Ensure horizontal content insets are always applied (fixes initial render without padding)
+        if textView.contentInset.left != 20 {
+            textView.contentInset.left = 20
+        }
+        if textView.contentInset.right != 20 {
+            textView.contentInset.right = 20
+        }
+
+        // Update Headers/Footers layout
+        updateLayout(textView, context: context, contentChanged: contentChanged)
+
+        // Handle Initial Scroll
+        if !coordinator.didInitialScroll, let initialPos = initialPosition {
             coordinator.didInitialScroll = true
+            // Map initialPos (assumed Y offset) to scroll
+            // Note: If initialPos was "paragraph index", this will be wrong.
+            // We assume the caller handles the semantic change or we accept the break.
             DispatchQueue.main.async {
-                let indexPath = IndexPath(row: position, section: 0)
-                if position < self.views.count {
-                    tableView.scrollToRow(at: indexPath, at: .top, animated: false)
+                textView.setContentOffset(CGPoint(x: 0, y: CGFloat(initialPos)), animated: false)
+            }
+        }
+    }
+    
+    private func updateLayout(_ textView: UITextView, context: Context, contentChanged: Bool) {
+        let coordinator = context.coordinator
+        let width = textView.bounds.width > 0 ? textView.bounds.width : UIScreen.main.bounds.width
+        let safeWidth = width - textView.contentInset.left - textView.contentInset.right
+
+        // Check if width changed significantly
+        let widthChanged = abs(coordinator.lastLayoutWidth - safeWidth) > 0.5
+        if widthChanged {
+            coordinator.lastLayoutWidth = safeWidth
+            coordinator.needsTextHeightRecalculation = true
+        }
+
+        // Skip expensive layout operations if nothing meaningful changed
+        guard contentChanged || widthChanged || coordinator.needsTextHeightRecalculation else {
+            return
+        }
+
+        var topInset: CGFloat = 0
+
+        // Layout Header - only update rootView when content changed
+        if let hc = coordinator.headerController {
+            if contentChanged, let headerView = headerView {
+                hc.rootView = AnyView(headerView)
+            }
+
+            // Only re-measure if width changed or frame is not set
+            if widthChanged || hc.view.frame.height == 0 {
+                let size = hc.view.systemLayoutSizeFitting(
+                    CGSize(width: safeWidth, height: UIView.layoutFittingCompressedSize.height),
+                    withHorizontalFittingPriority: .required,
+                    verticalFittingPriority: .fittingSizeLevel
+                )
+                hc.view.frame = CGRect(x: 0, y: 0, width: safeWidth, height: size.height)
+                topInset = size.height
+            } else {
+                hc.view.frame = CGRect(x: 0, y: 0, width: safeWidth, height: hc.view.frame.height)
+                topInset = hc.view.frame.height
+            }
+        }
+
+        // Update text container
+        if textView.textContainerInset.top != topInset {
+            textView.textContainerInset.top = topInset
+        }
+
+        // Layout Footer
+        if let fc = coordinator.footerController {
+            // Only update rootView when content changed (avoids triggering SwiftUI layout)
+            if contentChanged, let footerView = footerView {
+                fc.rootView = AnyView(footerView)
+            }
+
+            // Re-measure footer size if needed
+            var footerHeight = fc.view.frame.height
+            if widthChanged || footerHeight == 0 {
+                let size = fc.view.systemLayoutSizeFitting(
+                    CGSize(width: safeWidth, height: UIView.layoutFittingCompressedSize.height),
+                    withHorizontalFittingPriority: .required,
+                    verticalFittingPriority: .fittingSizeLevel
+                )
+                footerHeight = size.height
+            }
+
+            // Only recalculate text height when needed (expensive operation!)
+            if coordinator.needsTextHeightRecalculation {
+                if #available(iOS 16.0, *), let textLayoutManager = textView.textLayoutManager {
+                    // Use TextKit 2 if available
+                    textLayoutManager.ensureLayout(for: textLayoutManager.documentRange)
+                    coordinator.cachedTextHeight = textLayoutManager.usageBoundsForTextContainer.height
+                } else {
+                    // Fallback to contentSize
+                    coordinator.cachedTextHeight = max(
+                        textView.contentSize.height - textView.textContainerInset.top - textView.textContainerInset.bottom,
+                        0
+                    )
                 }
+                coordinator.needsTextHeightRecalculation = false
             }
-        } else if !coordinator.didInitialScroll {
-            coordinator.didInitialScroll = true
-        }
 
-        // Update background color
-        tableView.backgroundColor = backgroundColor
+            let footerYPos = topInset + coordinator.cachedTextHeight + 20
 
-        // Update header if styling changed
-        if stylingChanged, let headerView = headerView {
-            if let hostingController = coordinator.headerHostingController {
-                hostingController.rootView = AnyView(headerView)
-                hostingController.view.backgroundColor = backgroundColor
+            fc.view.frame = CGRect(x: 0, y: footerYPos, width: safeWidth, height: footerHeight)
 
-                // Re-size the header
-                hostingController.view.translatesAutoresizingMaskIntoConstraints = false
-                let size = hostingController.view.systemLayoutSizeFitting(
-                    CGSize(width: tableView.bounds.width, height: UIView.layoutFittingCompressedSize.height),
-                    withHorizontalFittingPriority: .required,
-                    verticalFittingPriority: .fittingSizeLevel
-                )
-                hostingController.view.frame = CGRect(origin: .zero, size: size)
-                hostingController.view.translatesAutoresizingMaskIntoConstraints = true
-                tableView.tableHeaderView = hostingController.view
+            let bottomInset = footerHeight + 40
+            if textView.contentInset.bottom != bottomInset {
+                textView.contentInset.bottom = bottomInset
             }
-        }
-
-        // Update footer if styling changed
-        if stylingChanged, let footerView = footerView {
-            if let hostingController = coordinator.footerHostingController {
-                hostingController.rootView = AnyView(footerView)
-                hostingController.view.backgroundColor = backgroundColor
-
-                // Re-size the footer
-                hostingController.view.translatesAutoresizingMaskIntoConstraints = false
-                let size = hostingController.view.systemLayoutSizeFitting(
-                    CGSize(width: tableView.bounds.width, height: UIView.layoutFittingCompressedSize.height),
-                    withHorizontalFittingPriority: .required,
-                    verticalFittingPriority: .fittingSizeLevel
-                )
-                hostingController.view.frame = CGRect(origin: .zero, size: size)
-                hostingController.view.translatesAutoresizingMaskIntoConstraints = true
-                tableView.tableFooterView = hostingController.view
-            }
-        }
-
-        // Reload visible cells if styling changed
-        if stylingChanged {
-            tableView.reloadData()
         }
     }
 
-    // MARK: - Coordinator
-
-    public class Coordinator: NSObject, UITableViewDataSource, UITableViewDelegate, UIScrollViewDelegate {
-        var parent: AO3ChapterView<Header, Footer>
-        var views: [AnyView] = []
-        var fontSize: CGFloat = 17
-        var fontDesign: AO3FontDesign = .default
-        var textColor: UIColor = .label
-        var backgroundColor: UIColor = .systemBackground
+    public class Coordinator: NSObject, UITextViewDelegate {
+        var parent: AO3ChapterView
+        var headerController: UIHostingController<AnyView>?
+        var footerController: UIHostingController<AnyView>?
         var didInitialScroll = false
-        weak var tableView: UITableView?
-        var headerHostingController: UIHostingController<AnyView>?
-        var footerHostingController: UIHostingController<AnyView>?
+        var lastLayoutWidth: CGFloat = 0
 
-        init(_ parent: AO3ChapterView<Header, Footer>) {
+        /// Cached content ID to detect when attributed content actually changes
+        var lastContentID: Int = 0
+
+        /// Cached text height to avoid expensive ensureLayout calls
+        var cachedTextHeight: CGFloat = 0
+
+        /// Whether text height needs recalculation (set when content changes)
+        var needsTextHeightRecalculation = true
+
+        init(_ parent: AO3ChapterView) {
             self.parent = parent
         }
 
-        private func makeFont() -> UIFont {
-            let baseFont = UIFont.systemFont(ofSize: fontSize)
-            if let descriptor = baseFont.fontDescriptor.withDesign(fontDesign.uiFontDescriptorDesign) {
-                return UIFont(descriptor: descriptor, size: fontSize)
-            }
-            return baseFont
+        // MARK: - UITextViewDelegate
+
+        // Only update binding when scrolling stops to prevent "multiple updates per frame" and excessive re-renders
+
+        public func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+            updateVisibleIndex(scrollView)
         }
-
-        // MARK: - UITableViewDataSource
-
-        public func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-            views.count
-        }
-
-        public func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-            let cell = tableView.dequeueReusableCell(withIdentifier: "ContentCell", for: indexPath) as! HostingCell
-
-            // Use SwiftUI's native font system to properly support fontWeight/bold
-            // Font(UIFont) creates a fixed font that doesn't respond to weight changes
-            let view = views[indexPath.row]
-                .font(.system(size: fontSize, design: fontDesign.swiftUIDesign))
-                .foregroundStyle(Color(textColor))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 20)
-
-            cell.configure(with: view, backgroundColor: backgroundColor)
-            return cell
-        }
-
-        // MARK: - UIScrollViewDelegate
 
         public func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
             if !decelerate {
-                updateTopVisibleIndex(scrollView as! UITableView)
+                updateVisibleIndex(scrollView)
             }
         }
 
-        public func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
-            updateTopVisibleIndex(scrollView as! UITableView)
-        }
-
-        public func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
-            updateTopVisibleIndex(scrollView as! UITableView)
-        }
-
-        private func updateTopVisibleIndex(_ tableView: UITableView) {
-            guard didInitialScroll else { return }
-
-            if let topIndexPath = tableView.indexPathsForVisibleRows?.first {
-                parent.topVisibleIndex = topIndexPath.row
+        private func updateVisibleIndex(_ scrollView: UIScrollView) {
+            let newIndex = Int(scrollView.contentOffset.y)
+            if parent.topVisibleIndex != newIndex {
+                parent.topVisibleIndex = newIndex
             }
+        }
+
+        // MARK: - Edit Menu Customization
+
+        /// Adds "Share as Quote" option to text selection menu (iOS 16+)
+        public func textView(
+            _ textView: UITextView,
+            editMenuForTextIn range: NSRange,
+            suggestedActions: [UIMenuElement]
+        ) -> UIMenu? {
+            // Only add share option if callback is provided
+            guard let onShareQuote = parent.onShareQuote else {
+                return UIMenu(children: suggestedActions)
+            }
+
+            // Get selected text and validate length
+            guard let text = textView.text,
+                  let swiftRange = Range(range, in: text) else {
+                return UIMenu(children: suggestedActions)
+            }
+
+            let selectedText = String(text[swiftRange])
+
+            // Don't show option if selection is empty or too long
+            guard !selectedText.isEmpty,
+                  selectedText.count <= parent.shareQuoteMaxLength else {
+                return UIMenu(children: suggestedActions)
+            }
+
+            let shareAction = UIAction(
+                title: "Share as Quote",
+                image: UIImage(systemName: "quote.bubble")
+            ) { _ in
+                onShareQuote(selectedText)
+            }
+
+            return UIMenu(children: suggestedActions + [shareAction])
         }
     }
 }
 
-// MARK: - Convenience Initializers
+// MARK: - Extensions for Init
 
-// Header only (no footer)
 extension AO3ChapterView where Footer == EmptyView {
     public init(
         html: String,
@@ -342,6 +383,10 @@ extension AO3ChapterView where Footer == EmptyView {
         fontDesign: AO3FontDesign = .default,
         textColor: UIColor = .label,
         backgroundColor: UIColor = .systemBackground,
+        textSelectionEnabled: Bool = false,
+        textAlignment: AO3TextAlignment = .leading,
+        onShareQuote: ((String) -> Void)? = nil,
+        shareQuoteMaxLength: Int = 500,
         @ViewBuilder header: () -> Header
     ) {
         self.init(
@@ -353,6 +398,10 @@ extension AO3ChapterView where Footer == EmptyView {
             fontDesign: fontDesign,
             textColor: textColor,
             backgroundColor: backgroundColor,
+            textSelectionEnabled: textSelectionEnabled,
+            textAlignment: textAlignment,
+            onShareQuote: onShareQuote,
+            shareQuoteMaxLength: shareQuoteMaxLength,
             header: header,
             footer: { EmptyView() }
         )
@@ -367,6 +416,10 @@ extension AO3ChapterView where Footer == EmptyView {
         fontDesign: AO3FontDesign = .default,
         textColor: UIColor = .label,
         backgroundColor: UIColor = .systemBackground,
+        textSelectionEnabled: Bool = false,
+        textAlignment: AO3TextAlignment = .leading,
+        onShareQuote: ((String) -> Void)? = nil,
+        shareQuoteMaxLength: Int = 500,
         @ViewBuilder header: () -> Header
     ) {
         self.init(
@@ -378,13 +431,16 @@ extension AO3ChapterView where Footer == EmptyView {
             fontDesign: fontDesign,
             textColor: textColor,
             backgroundColor: backgroundColor,
+            textSelectionEnabled: textSelectionEnabled,
+            textAlignment: textAlignment,
+            onShareQuote: onShareQuote,
+            shareQuoteMaxLength: shareQuoteMaxLength,
             header: header,
             footer: { EmptyView() }
         )
     }
 }
 
-// No header or footer
 extension AO3ChapterView where Header == EmptyView, Footer == EmptyView {
     public init(
         html: String,
@@ -394,7 +450,11 @@ extension AO3ChapterView where Header == EmptyView, Footer == EmptyView {
         fontSize: CGFloat = 17,
         fontDesign: AO3FontDesign = .default,
         textColor: UIColor = .label,
-        backgroundColor: UIColor = .systemBackground
+        backgroundColor: UIColor = .systemBackground,
+        textSelectionEnabled: Bool = false,
+        textAlignment: AO3TextAlignment = .leading,
+        onShareQuote: ((String) -> Void)? = nil,
+        shareQuoteMaxLength: Int = 500
     ) {
         self.init(
             html: html,
@@ -405,6 +465,10 @@ extension AO3ChapterView where Header == EmptyView, Footer == EmptyView {
             fontDesign: fontDesign,
             textColor: textColor,
             backgroundColor: backgroundColor,
+            textSelectionEnabled: textSelectionEnabled,
+            textAlignment: textAlignment,
+            onShareQuote: onShareQuote,
+            shareQuoteMaxLength: shareQuoteMaxLength,
             header: { EmptyView() },
             footer: { EmptyView() }
         )
@@ -418,7 +482,11 @@ extension AO3ChapterView where Header == EmptyView, Footer == EmptyView {
         fontSize: CGFloat = 17,
         fontDesign: AO3FontDesign = .default,
         textColor: UIColor = .label,
-        backgroundColor: UIColor = .systemBackground
+        backgroundColor: UIColor = .systemBackground,
+        textSelectionEnabled: Bool = false,
+        textAlignment: AO3TextAlignment = .leading,
+        onShareQuote: ((String) -> Void)? = nil,
+        shareQuoteMaxLength: Int = 500
     ) {
         self.init(
             chapter: chapter,
@@ -429,69 +497,12 @@ extension AO3ChapterView where Header == EmptyView, Footer == EmptyView {
             fontDesign: fontDesign,
             textColor: textColor,
             backgroundColor: backgroundColor,
+            textSelectionEnabled: textSelectionEnabled,
+            textAlignment: textAlignment,
+            onShareQuote: onShareQuote,
+            shareQuoteMaxLength: shareQuoteMaxLength,
             header: { EmptyView() },
             footer: { EmptyView() }
         )
     }
 }
-
-// MARK: - Hosting Cell
-
-/// A UITableViewCell that hosts SwiftUI content
-private class HostingCell: UITableViewCell {
-    private var hostingController: UIHostingController<AnyView>?
-
-    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-        super.init(style: style, reuseIdentifier: reuseIdentifier)
-        selectionStyle = .none
-        backgroundColor = .clear
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    func configure(with view: some View, backgroundColor: UIColor) {
-        self.backgroundColor = backgroundColor
-        contentView.backgroundColor = backgroundColor
-
-        let wrappedView = AnyView(view)
-
-        if let hostingController = hostingController {
-            hostingController.rootView = wrappedView
-            hostingController.view.invalidateIntrinsicContentSize()
-        } else {
-            let hc = UIHostingController(rootView: wrappedView)
-            hc.view.backgroundColor = .clear
-            hc.view.translatesAutoresizingMaskIntoConstraints = false
-
-            contentView.addSubview(hc.view)
-            NSLayoutConstraint.activate([
-                hc.view.topAnchor.constraint(equalTo: contentView.topAnchor),
-                hc.view.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-                hc.view.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-                hc.view.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
-            ])
-
-            hostingController = hc
-        }
-    }
-
-    override func prepareForReuse() {
-        super.prepareForReuse()
-    }
-}
-
-#if DEBUG
-import struct AO3Kit.AO3MockData
-
-#Preview("Chapter View") {
-    AO3ChapterView(
-        chapter: AO3MockData.sampleChapter1,
-        work: AO3MockData.sampleWork1,
-        topVisibleIndex: .constant(nil),
-        fontSize: 18,
-        fontDesign: .serif
-    )
-}
-#endif

@@ -104,7 +104,10 @@ public struct ColorInfo: Sendable, Equatable {
     }
 }
 
-/// Text alignment options
+/// Text alignment options (internal use)
 public enum TextAlignment: Sendable {
-    case leading, center, trailing
+    case leading, center, trailing, justified
 }
+
+/// Public text alignment type for external use
+public typealias AO3TextAlignment = TextAlignment

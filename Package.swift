@@ -6,7 +6,6 @@ import PackageDescription
 let package = Package(
     name: "AO3Kit",
     platforms: [
-        .macOS(.v13),
         .iOS(.v17),
         .tvOS(.v17),
         .watchOS(.v9)

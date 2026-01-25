@@ -7,15 +7,28 @@ private let DEBUG_SHOW_TEXT_BACKGROUNDS = false
 struct FormattedText: View {
     let nodes: [HTMLNode]
     let baseStyle: TextStyle
+    let textSelectionEnabled: Bool
+
+    init(nodes: [HTMLNode], baseStyle: TextStyle, textSelectionEnabled: Bool = false) {
+        self.nodes = nodes
+        self.baseStyle = baseStyle
+        self.textSelectionEnabled = textSelectionEnabled
+    }
 
     var body: some View {
-        if DEBUG_SHOW_TEXT_BACKGROUNDS {
-            // Debug mode: show each text segment with background color
-            buildDebugText(from: nodes, style: baseStyle)
-                .fixedSize(horizontal: false, vertical: true)
-        } else {
-            buildText(from: nodes, style: baseStyle)
-                .fixedSize(horizontal: false, vertical: true)
+        let textView = DEBUG_SHOW_TEXT_BACKGROUNDS
+            ? buildDebugText(from: nodes, style: baseStyle)
+            : buildText(from: nodes, style: baseStyle)
+
+        return Group {
+            if textSelectionEnabled {
+                textView
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+            } else {
+                textView
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 

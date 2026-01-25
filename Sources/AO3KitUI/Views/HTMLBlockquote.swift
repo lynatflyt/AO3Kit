@@ -4,6 +4,8 @@ import SwiftUI
 struct HTMLBlockquote: View {
     let children: [HTMLNode]
     let context: RenderContext
+    var textSelectionEnabled: Bool = false
+    var textAlignment: TextAlignment = .leading
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
@@ -26,9 +28,9 @@ struct HTMLBlockquote: View {
     private func renderChild(_ node: HTMLNode) -> some View {
         switch node {
         case .paragraph(let children):
-            FormattedText(nodes: children, baseStyle: context.currentStyle)
+            FormattedText(nodes: children, baseStyle: context.currentStyle, textSelectionEnabled: textSelectionEnabled)
         default:
-            FormattedText(nodes: [node], baseStyle: context.currentStyle)
+            FormattedText(nodes: [node], baseStyle: context.currentStyle, textSelectionEnabled: textSelectionEnabled)
         }
     }
 }

@@ -4,6 +4,8 @@ import SwiftUI
 struct HTMLDetails: View {
     let summary: [HTMLNode]
     let content: [HTMLNode]
+    var textSelectionEnabled: Bool = false
+    var textAlignment: TextAlignment = .leading
 
     @State private var isExpanded: Bool = false
 
@@ -15,7 +17,7 @@ struct HTMLDetails: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
 
-                    FormattedText(nodes: summary, baseStyle: TextStyle())
+                    FormattedText(nodes: summary, baseStyle: TextStyle(), textSelectionEnabled: textSelectionEnabled)
                         .foregroundColor(.primary)
                 }
             }
@@ -39,9 +41,9 @@ struct HTMLDetails: View {
     private func renderContent(_ node: HTMLNode) -> some View {
         switch node {
         case .paragraph(let children):
-            FormattedText(nodes: children, baseStyle: TextStyle())
+            FormattedText(nodes: children, baseStyle: TextStyle(), textSelectionEnabled: textSelectionEnabled)
         default:
-            FormattedText(nodes: [node], baseStyle: TextStyle())
+            FormattedText(nodes: [node], baseStyle: TextStyle(), textSelectionEnabled: textSelectionEnabled)
         }
     }
 }

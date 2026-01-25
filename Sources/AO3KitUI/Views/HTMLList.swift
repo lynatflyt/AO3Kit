@@ -5,6 +5,8 @@ struct HTMLList: View {
     let ordered: Bool
     let items: [[HTMLNode]]
     let depth: Int
+    var textSelectionEnabled: Bool = false
+    var textAlignment: TextAlignment = .leading
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -43,11 +45,11 @@ struct HTMLList: View {
     private func renderNode(_ node: HTMLNode, itemIndex: Int) -> some View {
         switch node {
         case .list(let nestedOrdered, let nestedItems):
-            HTMLList(ordered: nestedOrdered, items: nestedItems, depth: depth + 1)
+            HTMLList(ordered: nestedOrdered, items: nestedItems, depth: depth + 1, textSelectionEnabled: textSelectionEnabled, textAlignment: textAlignment)
         case .paragraph(let children):
-            FormattedText(nodes: children, baseStyle: TextStyle())
+            FormattedText(nodes: children, baseStyle: TextStyle(), textSelectionEnabled: textSelectionEnabled)
         default:
-            FormattedText(nodes: [node], baseStyle: TextStyle())
+            FormattedText(nodes: [node], baseStyle: TextStyle(), textSelectionEnabled: textSelectionEnabled)
         }
     }
 }
