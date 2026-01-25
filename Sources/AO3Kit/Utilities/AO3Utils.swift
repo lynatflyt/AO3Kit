@@ -35,6 +35,34 @@ internal enum AO3Utils {
         return (data, httpResponse.statusCode)
     }
 
+    /// Performs a synchronous HTTP GET request and detects redirects
+    /// - Parameter urlString: The URL to request
+    /// - Returns: Tuple containing the response data, HTTP status code, and whether the request was redirected
+    /// - Throws: AO3Exception if the request fails
+    /// - Note: Useful for detecting auth redirects (302 to login page)
+    static func syncRequestWithRedirectInfo(_ urlString: String) async throws -> (Data, Int, Bool) {
+        guard let url = URL(string: urlString) else {
+            throw AO3Exception.generic("Invalid URL: \(urlString)")
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+                        forHTTPHeaderField: "User-Agent")
+
+        // Use a custom delegate to detect redirects
+        let delegate = RedirectDetectionDelegate()
+        let delegateSession = URLSession(configuration: session.configuration, delegate: delegate, delegateQueue: nil)
+
+        let (data, response) = try await delegateSession.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw AO3Exception.generic("Invalid response type")
+        }
+
+        return (data, httpResponse.statusCode, delegate.wasRedirected)
+    }
+
     /// Performs a synchronous HTTP POST request with form data
     /// - Parameters:
     ///   - urlString: The URL to request
@@ -95,4 +123,43 @@ internal enum AO3Utils {
         decoder.dateDecodingStrategy = .iso8601
         return decoder
     }()
+}
+
+/// Delegate that tracks whether a redirect occurred during a request
+private final class RedirectDetectionDelegate: NSObject, URLSessionTaskDelegate, Sendable {
+    private let _wasRedirected = AtomicBool()
+
+    var wasRedirected: Bool {
+        _wasRedirected.value
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        _wasRedirected.set(true)
+        // Allow the redirect to proceed
+        completionHandler(request)
+    }
+}
+
+/// Thread-safe atomic boolean for Sendable conformance
+private final class AtomicBool: @unchecked Sendable {
+    private var _value = false
+    private let lock = NSLock()
+
+    var value: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return _value
+    }
+
+    func set(_ newValue: Bool) {
+        lock.lock()
+        defer { lock.unlock() }
+        _value = newValue
+    }
 }
