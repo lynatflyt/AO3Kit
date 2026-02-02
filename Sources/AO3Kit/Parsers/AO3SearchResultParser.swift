@@ -20,6 +20,9 @@ internal struct AO3PaginationInfo {
 /// Parses AO3 search result blurbs into AO3Work objects
 /// This is much more efficient than fetching each work individually
 internal struct AO3SearchResultParser {
+    // Shared blurb parser for core parsing logic
+    private let blurbParser = AO3BlurbParser()
+
     // Static date formatter to avoid expensive re-initialization
     private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -35,6 +38,87 @@ internal struct AO3SearchResultParser {
         let works = try parseSearchResults(from: document)
         let pagination = parsePagination(from: document)
         return AO3WorksResult(works: works, currentPage: pagination.currentPage, totalPages: pagination.totalPages)
+    }
+
+    /// Parse search results into blurbs with pagination info (new type-safe API)
+    /// - Parameter document: The parsed HTML document
+    /// - Returns: AO3BlurbsResult containing blurbs and pagination metadata
+    func parseBlurbsResultWithPagination(from document: Document) throws -> AO3BlurbsResult {
+        let blurbs = try parseBlurbs(from: document)
+        let pagination = parsePagination(from: document)
+        return AO3BlurbsResult(blurbs: blurbs, currentPage: pagination.currentPage, totalPages: pagination.totalPages)
+    }
+
+    /// Parse history/readings page with pagination info (new type-safe API)
+    /// - Parameter document: The parsed HTML document
+    /// - Returns: AO3HistoryResult containing history entries and pagination metadata
+    func parseHistoryResultWithPagination(from document: Document) throws -> AO3HistoryResult {
+        let entries = try parseHistoryEntries(from: document)
+        let pagination = parsePagination(from: document)
+        return AO3HistoryResult(entries: entries, currentPage: pagination.currentPage, totalPages: pagination.totalPages)
+    }
+
+    /// Parse work blurbs from a search results page (new type-safe API)
+    /// - Parameter document: The parsed HTML document
+    /// - Returns: Array of AO3WorkBlurb objects
+    func parseBlurbs(from document: Document) throws -> [AO3WorkBlurb] {
+        guard let resultList = try document.select("ol.work.index.group").first() else {
+            return []
+        }
+
+        let blurbs = try resultList.select("li.work.blurb.group")
+        var results: [AO3WorkBlurb] = []
+
+        for blurb in blurbs {
+            let elementId = blurb.id()
+            guard elementId.hasPrefix("work_"),
+                  let workID = Int(elementId.dropFirst(5)) else {
+                continue
+            }
+
+            do {
+                let parsed = try blurbParser.parseBlurb(blurb, workID: workID)
+                results.append(parsed)
+            } catch {
+                // Skip malformed blurbs
+                continue
+            }
+        }
+
+        return results
+    }
+
+    /// Parse history entries from a readings page (new type-safe API)
+    /// - Parameter document: The parsed HTML document
+    /// - Returns: Array of AO3HistoryEntry objects with guaranteed lastVisitedDate
+    func parseHistoryEntries(from document: Document) throws -> [AO3HistoryEntry] {
+        guard let resultList = try document.select("ol.work.index.group").first() else {
+            return []
+        }
+
+        let blurbs = try resultList.select("li.work.blurb.group")
+        var results: [AO3HistoryEntry] = []
+
+        for blurb in blurbs {
+            let elementId = blurb.id()
+            guard elementId.hasPrefix("work_"),
+                  let workID = Int(elementId.dropFirst(5)) else {
+                continue
+            }
+
+            do {
+                let workBlurb = try blurbParser.parseBlurb(blurb, workID: workID)
+                // Parse history-specific date - use updated date as fallback
+                let lastVisited = blurbParser.parseHistoryDate(blurb) ?? workBlurb.updated
+                let entry = AO3HistoryEntry(blurb: workBlurb, lastVisitedDate: lastVisited)
+                results.append(entry)
+            } catch {
+                // Skip malformed entries
+                continue
+            }
+        }
+
+        return results
     }
 
     /// Parse pagination information from the search results page
@@ -191,7 +275,8 @@ internal struct AO3SearchResultParser {
         parseStats(from: blurb, into: work)
 
         // Dates
-        parseDates(from: blurb, into: work)
+        parsePublishedDate(from: blurb, into: work)
+        parseWorkUpdateDate(from: blurb, into: work)
 
         // Parse chapters from stats
         parseChaptersFromStats(into: work)
@@ -260,12 +345,12 @@ internal struct AO3SearchResultParser {
             }
 
             // Bookmarks
-            if let bookmarksDD = try statsDL.select("dd.bookmarks").first() {
+            if let bookmarksDD = try statsDL.select("dd.bookmarks").first() { // Added blurb.select for more robust search
                 stats["bookmarks"] = try bookmarksDD.text().replacingOccurrences(of: ",", with: "")
             }
 
             // Comments
-            if let commentsDD = try statsDL.select("dd.comments").first() {
+            if let commentsDD = try statsDL.select("dd.comments").first() { // Added blurb.select for more robust search
                 stats["comments"] = try commentsDD.text().replacingOccurrences(of: ",", with: "")
             }
         } catch {
@@ -275,17 +360,43 @@ internal struct AO3SearchResultParser {
         work.stats = stats
     }
 
-    private func parseDates(from blurb: Element, into work: AO3Work) {
+    /// Parse the work's published date from p.datetime
+    private func parsePublishedDate(from blurb: Element, into work: AO3Work) {
         do {
             if let dateP = try blurb.select("p.datetime").first() {
                 let dateText = try dateP.text()
                 if let date = Self.dateFormatter.date(from: dateText) {
                     work.published = date
-                    work.updated = date
                 }
             }
         } catch {
             // Use current date as default
+        }
+    }
+
+    /// Parse the work's last updated date from the HTML comment (updated_at=...)
+    private func parseWorkUpdateDate(from blurb: Element, into work: AO3Work) {
+        do {
+            if let headerModule = (try blurb.select("div.header.module")).first(),
+               let commentNode = headerModule.childNode(0) as? Comment {
+                let commentText = commentNode.getData()
+                let regex = try NSRegularExpression(pattern: "updated_at=(\\d+)")
+                if let match = regex.firstMatch(in: commentText, range: NSRange(commentText.startIndex..., in: commentText)),
+                   let range = Range(match.range(at: 1), in: commentText),
+                   let timestamp = TimeInterval(commentText[range]) {
+                    work.updated = Date(timeIntervalSince1970: timestamp)
+                } else {
+                    // Fallback to published date if updated_at comment is not found or malformed
+                    work.updated = work.published
+                }
+            }
+            else {
+                // Fallback to published date if header module or comment not found
+                work.updated = work.published
+            }
+        } catch {
+            // If parsing fails, use published date as default
+            work.updated = work.published
         }
     }
 

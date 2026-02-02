@@ -91,6 +91,36 @@ public class AO3Work: AO3Data, @unchecked Sendable {
         let parser = AO3SearchResultParser()
         try parser.parseBlurb(blurb, into: self)
     }
+
+    /// Create an AO3Work from an AO3WorkBlurb
+    /// Useful for converting type-safe blurb data into the full work model
+    public convenience init(from blurb: AO3WorkBlurb) {
+        self.init(
+            id: blurb.id,
+            title: blurb.title,
+            authors: blurb.authors,
+            summary: blurb.summary,
+            rating: blurb.rating,
+            warnings: [blurb.archiveWarning],
+            categories: [blurb.category],
+            fandoms: [blurb.fandom],
+            relationships: blurb.relationships,
+            characters: blurb.characters,
+            freeforms: blurb.additionalTags,
+            series: [],
+            status: blurb.stats.isComplete ? "Complete" : "In Progress",
+            publishedDate: AO3Work.dateFormatter.string(from: blurb.published),
+            updatedDate: AO3Work.dateFormatter.string(from: blurb.updated),
+            words: blurb.stats.words,
+            chapters: blurb.stats.currentChapterCount,
+            chapterCount: blurb.stats.totalChapterCount ?? 0,
+            comments: blurb.stats.comments ?? 0,
+            kudos: blurb.stats.kudos ?? 0,
+            bookmarks: blurb.stats.bookmarks ?? 0,
+            hits: blurb.stats.hits ?? 0,
+            language: blurb.language
+        )
+    }
     
     private enum CodingKeys: String, CodingKey {
         case id, title, authors, archiveWarning, rating, category, fandom

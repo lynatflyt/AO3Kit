@@ -262,6 +262,105 @@ public struct AO3 {
         }
     }
 
+    /// Retrieves a paginated list of reading history for a user (type-safe version)
+    /// - Parameters:
+    ///   - username: The username to get reading history for
+    ///   - page: Page number (1-indexed, default 1)
+    /// - Returns: AO3HistoryResult containing history entries with guaranteed lastVisitedDate
+    /// - Throws: AO3Exception.notAuthenticated if not logged in (302 redirect to login)
+    /// - Note: Reading history is private and requires authentication as the user
+    public static func getUserHistory(
+        username: String,
+        page: Int = 1
+    ) async throws -> AO3HistoryResult {
+        do {
+            var urlString = "https://archiveofourown.org/users/\(username)/readings"
+            if page > 1 {
+                urlString += "?page=\(page)"
+            }
+
+            let (data, statusCode, wasRedirected) = try await AO3Utils.syncRequestWithRedirectInfo(urlString)
+
+            // 302 redirect typically means we're not authenticated and being sent to login
+            if wasRedirected {
+                throw AO3Exception.notAuthenticated
+            }
+
+            guard statusCode == 200 else {
+                if statusCode == 404 {
+                    throw AO3Exception.userNotFound(username)
+                }
+                throw AO3Exception.invalidStatusCode(statusCode, nil)
+            }
+
+            guard let body = String(data: data, encoding: .utf8) else {
+                throw AO3Exception.noBodyReturned
+            }
+
+            let document = try SwiftSoup.parse(body)
+
+            // Check if we were redirected to login page (backup check)
+            if let loginForm = try? document.select("form#new_user_session").first(), loginForm != nil {
+                throw AO3Exception.notAuthenticated
+            }
+
+            // Passively validate session from the parsed page
+            await AO3.validateSession(from: document)
+
+            let parser = AO3SearchResultParser()
+            return try parser.parseHistoryResultWithPagination(from: document)
+
+        } catch let error as AO3Exception {
+            throw error
+        } catch {
+            throw AO3Exception.parsingError("Failed to get user history. Most likely a parsing error!", error)
+        }
+    }
+
+    /// Retrieves a paginated list of bookmarks by a user (type-safe version)
+    /// - Parameters:
+    ///   - username: The username to get bookmarks for
+    ///   - page: Page number (1-indexed, default 1)
+    /// - Returns: AO3BookmarksResult containing bookmark entries with metadata
+    /// - Throws: AO3Exception if the bookmarks cannot be retrieved
+    public static func getUserBookmarksTyped(
+        username: String,
+        page: Int = 1
+    ) async throws -> AO3BookmarksResult {
+        do {
+            var urlString = "https://archiveofourown.org/users/\(username)/bookmarks"
+            if page > 1 {
+                urlString += "?page=\(page)"
+            }
+
+            let (data, statusCode) = try await AO3Utils.syncRequest(urlString)
+
+            guard statusCode == 200 else {
+                if statusCode == 404 {
+                    throw AO3Exception.userNotFound(username)
+                }
+                throw AO3Exception.invalidStatusCode(statusCode, nil)
+            }
+
+            guard let body = String(data: data, encoding: .utf8) else {
+                throw AO3Exception.noBodyReturned
+            }
+
+            let document = try SwiftSoup.parse(body)
+
+            // Passively validate session from the parsed page
+            await AO3.validateSession(from: document)
+
+            let parser = AO3BookmarkParser()
+            return try parser.parseBookmarksResultWithPagination(from: document)
+
+        } catch let error as AO3Exception {
+            throw error
+        } catch {
+            throw AO3Exception.parsingError("Failed to get user bookmarks. Most likely a parsing error!", error)
+        }
+    }
+
     /// Internal method to get a chapter with caching support
     /// - Parameters:
     ///   - workID: The work ID

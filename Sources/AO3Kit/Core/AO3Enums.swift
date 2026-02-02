@@ -1,7 +1,7 @@
 import Foundation
 
 /// Types of autocomplete available on AO3
-public enum AO3AutocompleteType: String, Codable, CaseIterable {
+public enum AO3AutocompleteType: String, Codable, CaseIterable, Sendable {
     case fandom = "fandom"
     case relationship = "relationship"
     case character = "character"
@@ -9,7 +9,7 @@ public enum AO3AutocompleteType: String, Codable, CaseIterable {
 }
 
 /// Enumeration of archive warnings
-public enum AO3Warning: String, Codable, CaseIterable {
+public enum AO3Warning: String, Codable, CaseIterable, Sendable {
     case noWarnings = "Creator Chose Not To Use Archive Warnings"
     case noneApply = "No Archive Warnings Apply"
     case violence = "Graphic Depictions Of Violence"
@@ -24,7 +24,7 @@ public enum AO3Warning: String, Codable, CaseIterable {
 }
 
 /// Enumeration of archive ratings
-public enum AO3Rating: String, Codable, CaseIterable {
+public enum AO3Rating: String, Codable, CaseIterable, Sendable {
     case notRated = "Not Rated"
     case general = "General Audiences"
     case teenAndUp = "Teen And Up Audiences"
@@ -37,7 +37,7 @@ public enum AO3Rating: String, Codable, CaseIterable {
 }
 
 /// Enumeration of archive categories
-public enum AO3Category: String, Codable, CaseIterable {
+public enum AO3Category: String, Codable, CaseIterable, Sendable {
     case ff = "F/F"
     case fm = "F/M"
     case gen = "Gen"

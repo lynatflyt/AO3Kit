@@ -248,8 +248,9 @@ public struct AO3ChapterView<Header: View, Footer: View>: UIViewRepresentable {
 
         // Layout Footer
         if let fc = coordinator.footerController {
-            // Only update rootView when content changed (avoids triggering SwiftUI layout)
-            if contentChanged, let footerView = footerView {
+            // Always update rootView to ensure bindings (like "mark as read" button state) are reflected
+            // SwiftUI's diffing will handle actual re-renders efficiently
+            if let footerView = footerView {
                 fc.rootView = AnyView(footerView)
             }
 
@@ -266,6 +267,9 @@ public struct AO3ChapterView<Header: View, Footer: View>: UIViewRepresentable {
 
             // Only recalculate text height when needed (expensive operation!)
             if coordinator.needsTextHeightRecalculation {
+                // Force layout before measuring to ensure accurate height
+                textView.layoutIfNeeded()
+
                 if #available(iOS 16.0, *), let textLayoutManager = textView.textLayoutManager {
                     // Use TextKit 2 if available
                     textLayoutManager.ensureLayout(for: textLayoutManager.documentRange)
@@ -282,7 +286,8 @@ public struct AO3ChapterView<Header: View, Footer: View>: UIViewRepresentable {
 
             let footerYPos = topInset + coordinator.cachedTextHeight + 20
 
-            fc.view.frame = CGRect(x: 0, y: footerYPos, width: safeWidth, height: footerHeight)
+            // Position footer aligned with content (matching contentInset.left)
+            fc.view.frame = CGRect(x: textView.contentInset.left, y: footerYPos, width: safeWidth, height: footerHeight)
 
             let bottomInset = footerHeight + 40
             if textView.contentInset.bottom != bottomInset {
