@@ -117,10 +117,22 @@ public class AO3User: AO3Data, @unchecked Sendable {
     private func loadUserData() async throws {
         let document = try await getDocument()
 
-        // Parse image URL
-        if let img = try document.select("img.icon").first() {
+        // Parse image URL from the user's profile icon
+        // The actual profile picture is in p.icon > a > img on the dashboard
+        // We need to skip the default placeholder icon
+        let defaultIconPath = "/images/skins/iconsets/default/icon_user.png"
+
+        // Try to find the image directly within the #main container
+        if let img = try document.select("#main img.icon").first() {
             let src = try img.attr("src")
-            imageURL = URL(string: src)
+
+            if !src.isEmpty && !src.contains(defaultIconPath) {
+                if src.hasPrefix("/") {
+                    imageURL = URL(string: "https://archiveofourown.org\(src)")
+                } else if src.hasPrefix("http") {
+                    imageURL = URL(string: src)
+                }
+            }
         }
 
         // Parse fandoms

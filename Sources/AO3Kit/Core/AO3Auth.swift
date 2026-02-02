@@ -51,12 +51,8 @@ public actor AO3Auth {
     ///   - rememberMe: Whether to persist the session (default true)
     /// - Throws: AO3Exception if login fails
     public func login(username: String, password: String, rememberMe: Bool = true) async throws {
-        print("[AO3Auth] Starting login for user: \(username)")
-
         // Step 1: GET the login page to extract CSRF token
-        print("[AO3Auth] Step 1: Extracting CSRF token...")
         let csrfToken = try await extractCSRFToken()
-        print("[AO3Auth] CSRF token obtained: \(csrfToken.prefix(20))...")
 
         // Step 2: POST the login form
         var formData: [String: String] = [
@@ -70,35 +66,25 @@ public actor AO3Auth {
             formData["user[remember_me]"] = "1"
         }
 
-        print("[AO3Auth] Step 2: Posting login form...")
+        // Step 2: POST the login form
         let (data, statusCode) = try await AO3Utils.postRequest(Self.loginURL, formData: formData)
-        print("[AO3Auth] POST response status code: \(statusCode)")
-        print("[AO3Auth] Response data size: \(data.count) bytes")
 
         // Step 3: Parse response
         guard let body = String(data: data, encoding: .utf8) else {
-            print("[AO3Auth] ERROR: Could not decode response body as UTF-8")
             throw AO3Exception.noBodyReturned
         }
-
-        print("[AO3Auth] Step 3: Parsing response HTML...")
-        print("[AO3Auth] Response body preview: \(body.prefix(500))")
 
         // Check for error messages in response
         let document = try SwiftSoup.parse(body)
 
         // Check for flash messages
         let allFlash = try document.select("div.flash")
-        print("[AO3Auth] Found \(allFlash.count) flash div(s)")
         for flash in allFlash {
             let flashText = try flash.text()
-            print("[AO3Auth] Flash content: \(flashText)")
 
             // "Already logged in" means success - extract username and return
             if flashText.contains("already logged in") {
-                print("[AO3Auth] Detected 'already logged in' message, treating as success")
                 if let extractedUsername = try extractUsernameFromPage(document) {
-                    print("[AO3Auth] SUCCESS: Extracted username: \(extractedUsername)")
                     state = .loggedIn(username: extractedUsername)
                     return
                 }
@@ -108,39 +94,25 @@ public actor AO3Auth {
         // AO3 returns error messages in a div with class "flash error"
         if let errorDiv = try document.select("div.flash.error").first() {
             let errorMessage = try errorDiv.text()
-            print("[AO3Auth] Found error div: \(errorMessage)")
             throw AO3Exception.authenticationFailed(errorMessage)
         }
 
         // Check if we're now logged in by looking for the logged-in user greeting
-        print("[AO3Auth] Checking for greeting element...")
         if let extractedUsername = try extractUsernameFromPage(document) {
-            print("[AO3Auth] SUCCESS: Found username: \(extractedUsername)")
             state = .loggedIn(username: extractedUsername)
             return
         }
 
         // If status code indicates redirect (302) and no error, check cookies
         if statusCode == 302 || statusCode == 200 {
-            print("[AO3Auth] Status code OK, checking session via cookies...")
             // Try to validate session via cookies
             if let detectedUsername = await checkSessionFromCookies() {
-                print("[AO3Auth] SUCCESS: Session validated, user: \(detectedUsername)")
                 state = .loggedIn(username: detectedUsername)
                 return
             }
-            print("[AO3Auth] Cookie session check returned nil")
-        }
-
-        // Log cookies for debugging
-        let cookies = getAO3Cookies()
-        print("[AO3Auth] Current AO3 cookies (\(cookies.count)):")
-        for cookie in cookies {
-            print("[AO3Auth]   - \(cookie.name): \(cookie.value.prefix(30))...")
         }
 
         // If we get here without finding an error or a successful login indicator
-        print("[AO3Auth] ERROR: No success indicator found, login failed")
         throw AO3Exception.authenticationFailed("Login failed for unknown reason. Status: \(statusCode)")
     }
 
@@ -312,16 +284,11 @@ public actor AO3Auth {
     /// - Returns: The current auth state after checking
     @discardableResult
     public func checkExistingSession() async -> AO3AuthState {
-        print("[AO3Auth] checkExistingSession: Starting...")
-
         // First check if we have AO3 cookies
         guard hasAO3Cookies() else {
-            print("[AO3Auth] checkExistingSession: No AO3 cookies found")
             state = .loggedOut
             return state
         }
-
-        print("[AO3Auth] checkExistingSession: Found cookies, checking session...")
 
         // Try to fetch a page that shows login status
         do {
@@ -329,7 +296,6 @@ public actor AO3Auth {
 
             guard statusCode == 200,
                   let body = String(data: data, encoding: .utf8) else {
-                print("[AO3Auth] checkExistingSession: Bad status or no body")
                 state = .loggedOut
                 return state
             }
@@ -343,14 +309,11 @@ public actor AO3Auth {
 
             // Use the shared username extraction logic
             if let username = try extractUsernameFromPage(document) {
-                print("[AO3Auth] checkExistingSession: Found username: \(username)")
                 state = .loggedIn(username: username)
             } else {
-                print("[AO3Auth] checkExistingSession: No username found, session expired")
                 state = .loggedOut
             }
         } catch {
-            print("[AO3Auth] checkExistingSession: Error - \(error)")
             state = .loggedOut
         }
 
@@ -384,7 +347,6 @@ public actor AO3Auth {
         // The actual HTML structure is: <nav id="greeting"> ... <a class="dropdown-toggle">Hi, username!</a>
         if let greetingLink = try document.select("nav#greeting a.dropdown-toggle").first() {
             let greetingText = try greetingLink.text()
-            print("[AO3Auth] Greeting dropdown text: \(greetingText)")
 
             // Parse "Hi, username!" pattern
             if greetingText.hasPrefix("Hi, ") {
@@ -400,7 +362,6 @@ public actor AO3Auth {
         // Method 2: Look for link to user profile in greeting nav
         if let greetingLink = try document.select("nav#greeting a[href*='/users/']").first() {
             let href = try greetingLink.attr("href")
-            print("[AO3Auth] Greeting link href: \(href)")
             // Extract username from /users/username path
             if let match = href.range(of: "/users/([^/]+)", options: .regularExpression) {
                 let fullMatch = String(href[match])
@@ -413,7 +374,6 @@ public actor AO3Auth {
         // The link text is "My Dashboard" and href is /users/username
         if let dashboardLink = try document.select("a:contains(My Dashboard)[href*='/users/']").first() {
             let href = try dashboardLink.attr("href")
-            print("[AO3Auth] Dashboard link href: \(href)")
             // Extract from /users/username
             let components = href.split(separator: "/")
             if components.count >= 2, let usersIndex = components.firstIndex(of: "users") {
@@ -424,7 +384,6 @@ public actor AO3Auth {
             }
         }
 
-        print("[AO3Auth] Could not extract username from page")
         return nil
     }
 
@@ -435,12 +394,11 @@ public actor AO3Auth {
             if let metaTag = try document.select("meta[name=csrf-token]").first() {
                 let token = try metaTag.attr("content")
                 if !token.isEmpty {
-                    print("[AO3Auth] Extracted CSRF token from meta tag: \(token.prefix(20))...")
                     return token
                 }
             }
         } catch {
-            print("[AO3Auth] Error extracting CSRF token: \(error)")
+            // Silently fail - token extraction is best-effort
         }
         return nil
     }
@@ -458,13 +416,11 @@ public actor AO3Auth {
         if let foundUsername = foundUsername {
             // Session still valid - optionally verify username matches
             if foundUsername != expectedUsername {
-                print("[AO3Auth] Session validation: username changed from \(expectedUsername) to \(foundUsername)")
                 state = .loggedIn(username: foundUsername)
                 postAuthStateChanged()
             }
         } else {
             // No greeting found - session has expired
-            print("[AO3Auth] Session validation: greeting not found, session expired")
             state = .loggedOut
             postSessionExpired()
         }
@@ -508,7 +464,7 @@ public actor AO3Auth {
                 }
             }
         } catch {
-            print("[AO3Auth] extractUsername error: \(error)")
+            // Silently fail - username extraction is best-effort
         }
 
         return nil
@@ -553,15 +509,12 @@ public actor AO3Auth {
     }
 
     private func checkSessionFromCookies() async -> String? {
-        print("[AO3Auth] checkSessionFromCookies: Making request to homepage...")
         // Make a quick request to check if we're logged in
         do {
             let (data, statusCode) = try await AO3Utils.syncRequest("https://archiveofourown.org")
-            print("[AO3Auth] checkSessionFromCookies: Status \(statusCode), data size \(data.count)")
 
             guard statusCode == 200,
                   let body = String(data: data, encoding: .utf8) else {
-                print("[AO3Auth] checkSessionFromCookies: Bad status or no body")
                 return nil
             }
 
@@ -569,16 +522,13 @@ public actor AO3Auth {
 
             // Use the shared username extraction logic
             if let username = try extractUsernameFromPage(document) {
-                print("[AO3Auth] checkSessionFromCookies: Found username: \(username)")
                 return username
             }
 
         } catch {
-            print("[AO3Auth] checkSessionFromCookies: Error - \(error)")
             return nil
         }
 
-        print("[AO3Auth] checkSessionFromCookies: No username found")
         return nil
     }
 
