@@ -20,7 +20,6 @@ public struct AO3ChapterView<Header: View, Footer: View>: UIViewRepresentable {
     let fontDesign: AO3FontDesign
     let textColor: UIColor
     let backgroundColor: UIColor
-    let textSelectionEnabled: Bool
     let textAlignment: AO3TextAlignment
     let headerView: Header?
     let footerView: Footer?
@@ -42,7 +41,6 @@ public struct AO3ChapterView<Header: View, Footer: View>: UIViewRepresentable {
         fontDesign: AO3FontDesign = .default,
         textColor: UIColor = .label,
         backgroundColor: UIColor = .systemBackground,
-        textSelectionEnabled: Bool = false,
         textAlignment: AO3TextAlignment = .leading,
         onShareQuote: ((String) -> Void)? = nil,
         shareQuoteMaxLength: Int = 500,
@@ -80,7 +78,6 @@ public struct AO3ChapterView<Header: View, Footer: View>: UIViewRepresentable {
         self.fontDesign = fontDesign
         self.textColor = textColor
         self.backgroundColor = backgroundColor
-        self.textSelectionEnabled = textSelectionEnabled
         self.textAlignment = textAlignment
         self.onShareQuote = onShareQuote
         self.shareQuoteMaxLength = shareQuoteMaxLength
@@ -98,7 +95,6 @@ public struct AO3ChapterView<Header: View, Footer: View>: UIViewRepresentable {
         fontDesign: AO3FontDesign = .default,
         textColor: UIColor = .label,
         backgroundColor: UIColor = .systemBackground,
-        textSelectionEnabled: Bool = false,
         textAlignment: AO3TextAlignment = .leading,
         onShareQuote: ((String) -> Void)? = nil,
         shareQuoteMaxLength: Int = 500,
@@ -114,7 +110,6 @@ public struct AO3ChapterView<Header: View, Footer: View>: UIViewRepresentable {
             fontDesign: fontDesign,
             textColor: textColor,
             backgroundColor: backgroundColor,
-            textSelectionEnabled: textSelectionEnabled,
             textAlignment: textAlignment,
             onShareQuote: onShareQuote,
             shareQuoteMaxLength: shareQuoteMaxLength,
@@ -176,7 +171,7 @@ public struct AO3ChapterView<Header: View, Footer: View>: UIViewRepresentable {
         }
 
         textView.backgroundColor = backgroundColor
-        textView.isSelectable = textSelectionEnabled
+        textView.isSelectable = true
 
         // Ensure horizontal content insets are always applied (fixes initial render without padding)
         if textView.contentInset.left != 20 {
@@ -187,7 +182,14 @@ public struct AO3ChapterView<Header: View, Footer: View>: UIViewRepresentable {
         }
 
         // Update Headers/Footers layout
-        updateLayout(textView, context: context, contentChanged: contentChanged)
+        // Defer to next run loop to ensure TextView has proper frame
+        if textView.frame.width == 0 {
+            DispatchQueue.main.async {
+                self.updateLayout(textView, context: context, contentChanged: contentChanged)
+            }
+        } else {
+            updateLayout(textView, context: context, contentChanged: contentChanged)
+        }
 
         // Handle Initial Scroll
         if !coordinator.didInitialScroll, let initialPos = initialPosition {
@@ -256,13 +258,14 @@ public struct AO3ChapterView<Header: View, Footer: View>: UIViewRepresentable {
 
             // Re-measure footer size if needed
             var footerHeight = fc.view.frame.height
-            if widthChanged || footerHeight == 0 {
+            if widthChanged || footerHeight == 0 || contentChanged {
+                // Use a more generous fitting priority to ensure SwiftUI views with fixed heights are respected
                 let size = fc.view.systemLayoutSizeFitting(
-                    CGSize(width: safeWidth, height: UIView.layoutFittingCompressedSize.height),
+                    CGSize(width: safeWidth, height: 10000), // Allow unlimited height
                     withHorizontalFittingPriority: .required,
-                    verticalFittingPriority: .fittingSizeLevel
+                    verticalFittingPriority: .defaultLow // Let SwiftUI determine its own height
                 )
-                footerHeight = size.height
+                footerHeight = max(size.height, 80) // Ensure minimum height of 80pt
             }
 
             // Only recalculate text height when needed (expensive operation!)
@@ -286,8 +289,8 @@ public struct AO3ChapterView<Header: View, Footer: View>: UIViewRepresentable {
 
             let footerYPos = topInset + coordinator.cachedTextHeight + 20
 
-            // Position footer aligned with content (matching contentInset.left)
-            fc.view.frame = CGRect(x: textView.contentInset.left, y: footerYPos, width: safeWidth, height: footerHeight)
+            // Position footer - same as header (full width at x: 0)
+            fc.view.frame = CGRect(x: 0, y: footerYPos, width: safeWidth, height: footerHeight)
 
             let bottomInset = footerHeight + 40
             if textView.contentInset.bottom != bottomInset {
@@ -388,7 +391,6 @@ extension AO3ChapterView where Footer == EmptyView {
         fontDesign: AO3FontDesign = .default,
         textColor: UIColor = .label,
         backgroundColor: UIColor = .systemBackground,
-        textSelectionEnabled: Bool = false,
         textAlignment: AO3TextAlignment = .leading,
         onShareQuote: ((String) -> Void)? = nil,
         shareQuoteMaxLength: Int = 500,
@@ -403,7 +405,6 @@ extension AO3ChapterView where Footer == EmptyView {
             fontDesign: fontDesign,
             textColor: textColor,
             backgroundColor: backgroundColor,
-            textSelectionEnabled: textSelectionEnabled,
             textAlignment: textAlignment,
             onShareQuote: onShareQuote,
             shareQuoteMaxLength: shareQuoteMaxLength,
@@ -421,7 +422,6 @@ extension AO3ChapterView where Footer == EmptyView {
         fontDesign: AO3FontDesign = .default,
         textColor: UIColor = .label,
         backgroundColor: UIColor = .systemBackground,
-        textSelectionEnabled: Bool = false,
         textAlignment: AO3TextAlignment = .leading,
         onShareQuote: ((String) -> Void)? = nil,
         shareQuoteMaxLength: Int = 500,
@@ -436,7 +436,6 @@ extension AO3ChapterView where Footer == EmptyView {
             fontDesign: fontDesign,
             textColor: textColor,
             backgroundColor: backgroundColor,
-            textSelectionEnabled: textSelectionEnabled,
             textAlignment: textAlignment,
             onShareQuote: onShareQuote,
             shareQuoteMaxLength: shareQuoteMaxLength,
@@ -456,7 +455,6 @@ extension AO3ChapterView where Header == EmptyView, Footer == EmptyView {
         fontDesign: AO3FontDesign = .default,
         textColor: UIColor = .label,
         backgroundColor: UIColor = .systemBackground,
-        textSelectionEnabled: Bool = false,
         textAlignment: AO3TextAlignment = .leading,
         onShareQuote: ((String) -> Void)? = nil,
         shareQuoteMaxLength: Int = 500
@@ -470,7 +468,6 @@ extension AO3ChapterView where Header == EmptyView, Footer == EmptyView {
             fontDesign: fontDesign,
             textColor: textColor,
             backgroundColor: backgroundColor,
-            textSelectionEnabled: textSelectionEnabled,
             textAlignment: textAlignment,
             onShareQuote: onShareQuote,
             shareQuoteMaxLength: shareQuoteMaxLength,
@@ -488,7 +485,6 @@ extension AO3ChapterView where Header == EmptyView, Footer == EmptyView {
         fontDesign: AO3FontDesign = .default,
         textColor: UIColor = .label,
         backgroundColor: UIColor = .systemBackground,
-        textSelectionEnabled: Bool = false,
         textAlignment: AO3TextAlignment = .leading,
         onShareQuote: ((String) -> Void)? = nil,
         shareQuoteMaxLength: Int = 500
@@ -502,7 +498,6 @@ extension AO3ChapterView where Header == EmptyView, Footer == EmptyView {
             fontDesign: fontDesign,
             textColor: textColor,
             backgroundColor: backgroundColor,
-            textSelectionEnabled: textSelectionEnabled,
             textAlignment: textAlignment,
             onShareQuote: onShareQuote,
             shareQuoteMaxLength: shareQuoteMaxLength,
@@ -511,3 +506,56 @@ extension AO3ChapterView where Header == EmptyView, Footer == EmptyView {
         )
     }
 }
+// MARK: - Preview
+
+#Preview("AO3ChapterView with Footer") {
+    struct PreviewWrapper: View {
+        @State private var scrollPosition: Int? = nil
+        
+        var body: some View {
+            AO3ChapterView(
+                html: """
+                <p>This is a test chapter with some content.</p>
+                <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
+                <p>Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>
+                <p>Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.</p>
+                <p>Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore.</p>
+                <p>Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</p>
+                """,
+                topVisibleIndex: $scrollPosition
+            ) {
+                // Example header
+                VStack {
+                    Text("Chapter 1")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text("Test Chapter")
+                        .font(.title2)
+                        .bold()
+                }
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(Color.gray.opacity(0.1))
+            } footer: {
+                // Example footer - app provides its own footer content
+                VStack(spacing: 12) {
+                    Divider()
+                    
+                    Text("Footer content goes here")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    
+                    Text("(Provided by the app)")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(Color.gray.opacity(0.1))
+            }
+        }
+    }
+    
+    return PreviewWrapper()
+}
+
