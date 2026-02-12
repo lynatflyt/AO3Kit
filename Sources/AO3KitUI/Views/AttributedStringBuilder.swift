@@ -168,6 +168,11 @@ struct AttributedStringBuilder {
             
         case .lineBreak:
             return NSAttributedString(string: "\n", attributes: attributes(for: context.baseStyle, context: context))
+
+        case .webContent:
+            // Web content is handled separately in InlineWebView
+            // This should not be reached if ContentSegmenter is used properly
+            return NSAttributedString()
         }
     }
     

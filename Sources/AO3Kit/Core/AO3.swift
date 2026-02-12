@@ -588,4 +588,26 @@ public struct AO3 {
 
         return result
     }
+
+    // MARK: - Kudos Info
+
+    /// Information about kudos state parsed from a work page
+    public struct KudosInfo {
+        /// The authenticity token for leaving kudos, if available.
+        /// If nil, the user has likely already left kudos on this work.
+        public let authenticityToken: String?
+
+        /// Whether the user has likely already left kudos on this work.
+        /// Determined by checking if the kudos form is present on the page.
+        public var userHasLeftKudos: Bool {
+            authenticityToken == nil
+        }
+    }
+
+    /// Parses kudos-related info from a work page HTML document.
+    /// - Parameter document: The parsed SwiftSoup Document from a work page
+    /// - Returns: KudosInfo containing the authenticity token (if kudos can be left)
+    public static func parseKudosInfo(from document: Document) -> KudosInfo {
+        KudosInfo(authenticityToken: AO3WorkParser.parseKudosToken(from: document))
+    }
 }

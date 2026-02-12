@@ -6,15 +6,23 @@ public struct HTMLParser: Sendable {
 
     /// Parse HTML string into intermediate representation
     public static func parse(_ html: String, workSkin: WorkSkin = WorkSkin()) throws -> [HTMLNode] {
-        let document = try SwiftSoup.parse("<div>\(html)</div>")
-        guard let root = try document.select("div").first() else {
+        // Wrap in a uniquely-identified div to ensure we get the right root
+        let wrappedHTML = "<div id=\"ao3kit-parser-root\">\(html)</div>"
+        let document = try SwiftSoup.parse(wrappedHTML)
+        guard let root = try document.select("#ao3kit-parser-root").first() else {
             return []
         }
 
+        return try parseChildElements(of: root, style: TextStyle(), workSkin: workSkin)
+    }
+
+    /// Parse direct child elements of a container, respecting webContent boundaries
+    private static func parseChildElements(of container: Element, style: TextStyle, workSkin: WorkSkin) throws -> [HTMLNode] {
         var nodes: [HTMLNode] = []
-        for child in root.getChildNodes() {
+
+        for child in container.getChildNodes() {
             if let element = child as? Element {
-                nodes.append(contentsOf: try parseElement(element, style: TextStyle(), workSkin: workSkin))
+                nodes.append(contentsOf: try parseElement(element, style: style, workSkin: workSkin))
             } else if let textNode = child as? TextNode {
                 let text = textNode.text().trimmingCharacters(in: .whitespacesAndNewlines)
                 if !text.isEmpty {
@@ -78,8 +86,31 @@ public struct HTMLParser: Sendable {
             return [.listItem(children: try parseChildren(element, style: style, workSkin: workSkin))]
 
         case "div":
-            let attributes = try extractAttributes(element)
-            return [.div(children: try parseChildren(element, style: style, workSkin: workSkin), attributes: attributes)]
+            // Check if this is an AO3 structural div (parse inside) or a work-skin styled div (webContent)
+            let className = (try? element.className()) ?? ""
+
+            // AO3 structural classes - these are containers, parse inside them
+            let ao3StructuralClasses = [
+                "chapter", "preface", "group", "userstuff", "module", "notes",
+                "end", "endnotes", "summary", "byline", "landmark", "wrapper",
+                "meta", "tags", "stats", "series", "associations", "children",
+                "parent", "work", "header", "footer", "nav", "navigation"
+            ]
+
+            // Check if ALL of the div's classes are AO3 structural classes
+            let divClasses = className.split(separator: " ").map { String($0).lowercased() }
+            let isStructuralDiv = !divClasses.isEmpty && divClasses.allSatisfy { divClass in
+                ao3StructuralClasses.contains(where: { divClass.contains($0) })
+            }
+
+            if isStructuralDiv || className.isEmpty {
+                // This is a structural container or unstyled div - parse its children
+                return try parseChildElements(of: element, style: style, workSkin: workSkin)
+            } else {
+                // This is a work-skin styled div (like wpp, article, etc.) - capture as webContent
+                let rawHTML = try element.outerHtml()
+                return [.webContent(rawHTML: rawHTML, elementType: .unknownBlock)]
+            }
 
         case "details":
             let summary = try element.select("> summary").first()
@@ -165,39 +196,66 @@ public struct HTMLParser: Sendable {
         case "br":
             return [.lineBreak]
 
-        // Semantic elements - treat as inline formatting
-        case "small", "big":
-            // SwiftUI doesn't have easy font size changes in Text concatenation
-            // Just pass through for now
-            return try parseChildren(element, style: style, workSkin: workSkin)
-
-        case "cite", "q", "abbr", "kbd", "samp", "var":
+        // Semantic elements we can approximate
+        case "cite", "q", "abbr", "var":
             // Render as italic for semantic emphasis
             var semanticStyle = style
             semanticStyle.isItalic = true
             return [.formatted(children: try parseChildren(element, style: semanticStyle, workSkin: workSkin), style: semanticStyle)]
 
-        // Unsupported
-        case "table", "thead", "tbody", "tr", "th", "td":
-            // TODO: Table support
-            return [.text("[Table - not yet supported]")]
+        case "kbd", "samp":
+            // Render as code (monospace)
+            var codeStyle = style
+            codeStyle.isCode = true
+            return [.formatted(children: try parseChildren(element, style: codeStyle, workSkin: workSkin), style: codeStyle)]
+
+        case "small":
+            // Can't easily do small text in attributed string concatenation, just pass through
+            return try parseChildren(element, style: style, workSkin: workSkin)
+
+        case "big":
+            // Can't easily do big text, pass through
+            return try parseChildren(element, style: style, workSkin: workSkin)
+
+        // Web content elements (rendered via WKWebView)
+        case "table":
+            let rawHTML = try element.outerHtml()
+            return [.webContent(rawHTML: rawHTML, elementType: .table)]
+
+        case "thead", "tbody", "tr", "th", "td":
+            // These should be handled by their parent table element
+            // If we encounter them standalone, wrap them
+            let rawHTML = try element.outerHtml()
+            return [.webContent(rawHTML: rawHTML, elementType: .table)]
 
         case "img":
-            // TODO: Image support
-            let alt = (try? element.attr("alt")) ?? "Image"
-            return [.text("[\(alt)]")]
+            let src = (try? element.attr("src")) ?? ""
+            let alt = try? element.attr("alt")
+            let rawHTML = try element.outerHtml()
+            return [.webContent(rawHTML: rawHTML, elementType: .image(src: src, alt: alt))]
 
-        case "ruby", "rt", "rp":
-            // TODO: Ruby annotation support
-            return try parseChildren(element, style: style, workSkin: workSkin)
+        case "ruby":
+            let rawHTML = try element.outerHtml()
+            return [.webContent(rawHTML: rawHTML, elementType: .ruby)]
+
+        case "rt", "rp":
+            // These should be handled by their parent ruby element
+            // If encountered standalone, treat as web content
+            let rawHTML = try element.outerHtml()
+            return [.webContent(rawHTML: rawHTML, elementType: .ruby)]
 
         case "figure", "figcaption":
-            // TODO: Figure support
-            return try parseChildren(element, style: style, workSkin: workSkin)
+            let rawHTML = try element.outerHtml()
+            return [.webContent(rawHTML: rawHTML, elementType: .figure)]
+
+        case "embed", "object", "iframe", "video", "audio":
+            let rawHTML = try element.outerHtml()
+            return [.webContent(rawHTML: rawHTML, elementType: .embed)]
 
         default:
-            // Unknown tags - just process children
-            return try parseChildren(element, style: style, workSkin: workSkin)
+            // Unknown/unrecognized tag - don't parse inside, just capture as web content
+            let rawHTML = try element.outerHtml()
+            return [.webContent(rawHTML: rawHTML, elementType: .unknownBlock)]
         }
     }
 

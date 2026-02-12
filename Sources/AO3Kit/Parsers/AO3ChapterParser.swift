@@ -65,9 +65,8 @@ internal struct AO3ChapterParser {
 
     private func parseContentHTML(from document: Document) throws -> String {
         if let article = try document.select("[role=article]").first() {
-            let paragraphs = try article.select("p")
-            let htmlArray = try paragraphs.map { try $0.outerHtml() }
-            return htmlArray.joined(separator: "\n")
+            // Return full inner HTML to preserve all structure (divs, tables, images, etc.)
+            return try article.html()
         }
         return ""
     }

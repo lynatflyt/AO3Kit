@@ -14,13 +14,7 @@ public class AO3Work: AO3Data, @unchecked Sendable {
     public internal(set) var characters: [String] = []
     public internal(set) var additionalTags: [String] = []
     public internal(set) var language: String
-    
-    /// Whether the current user has left kudos on this work
-    public var userHasLeftKudos: Bool = false
-    
-    /// The authenticity token required to leave kudos (if available)
-    public var kudosAuthenticityToken: String?
-    
+
     public internal(set) var stats: [String: String] = [:]
     public internal(set) var published: Date = Date()
     public internal(set) var updated: Date = Date()
@@ -127,7 +121,6 @@ public class AO3Work: AO3Data, @unchecked Sendable {
         case relationships, characters, additionalTags, language, stats
         case published, updated, chapters, workSkinCSS
         case firstChapterContent, firstChapterHTML, firstChapterNotes, firstChapterSummary
-        case userHasLeftKudos, kudosAuthenticityToken
     }
     
     required public init(from decoder: Decoder) throws {
@@ -152,8 +145,6 @@ public class AO3Work: AO3Data, @unchecked Sendable {
         firstChapterHTML = try container.decodeIfPresent(String.self, forKey: .firstChapterHTML)
         firstChapterNotes = try container.decodeIfPresent([String].self, forKey: .firstChapterNotes) ?? []
         firstChapterSummary = try container.decodeIfPresent(String.self, forKey: .firstChapterSummary) ?? ""
-        userHasLeftKudos = try container.decodeIfPresent(Bool.self, forKey: .userHasLeftKudos) ?? false
-        kudosAuthenticityToken = try container.decodeIfPresent(String.self, forKey: .kudosAuthenticityToken)
         super.init()
     }
     
@@ -179,8 +170,6 @@ public class AO3Work: AO3Data, @unchecked Sendable {
         try container.encodeIfPresent(firstChapterHTML, forKey: .firstChapterHTML)
         try container.encode(firstChapterNotes, forKey: .firstChapterNotes)
         try container.encode(firstChapterSummary, forKey: .firstChapterSummary)
-        try container.encode(userHasLeftKudos, forKey: .userHasLeftKudos)
-        try container.encodeIfPresent(kudosAuthenticityToken, forKey: .kudosAuthenticityToken)
     }
     
     private func loadWorkData() async throws {

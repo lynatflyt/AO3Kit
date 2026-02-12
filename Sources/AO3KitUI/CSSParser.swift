@@ -47,7 +47,7 @@ public struct CSSParser {
             }
         }
 
-        return WorkSkin(colorMap: colorMap)
+        return WorkSkin(colorMap: colorMap, rawCSS: css)
     }
 
     /// Extract color value from CSS properties string

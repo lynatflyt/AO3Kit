@@ -145,6 +145,15 @@ struct HTMLViewBuilder {
         case .details(let summary, let content):
             return AnyView(HTMLDetails(summary: summary, content: content, textSelectionEnabled: textSelectionEnabled, textAlignment: textAlignment))
 
+        case .webContent(let rawHTML, _):
+            // Web content is typically rendered via InlineWebView in AO3ChapterView
+            // For the legacy SwiftUI-based path, we provide a placeholder
+            return AnyView(
+                Text("[Web content]")
+                    .foregroundColor(.secondary)
+                    .padding(.vertical, 4)
+            )
+
         // Inline elements shouldn't appear at top level
         case .text, .formatted, .link, .lineBreak, .span, .listItem:
             return AnyView(

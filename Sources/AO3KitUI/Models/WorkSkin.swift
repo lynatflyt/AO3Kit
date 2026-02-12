@@ -5,14 +5,19 @@ public struct WorkSkin: Sendable {
     /// Maps class names to hex color values (without #)
     private let colorMap: [String: String]
 
+    /// The original raw CSS string for use in WKWebView
+    public let rawCSS: String?
+
     /// Create an empty work skin (will use fallback colors)
     public init() {
         self.colorMap = [:]
+        self.rawCSS = nil
     }
 
     /// Create a work skin from parsed CSS
-    public init(colorMap: [String: String]) {
+    public init(colorMap: [String: String], rawCSS: String? = nil) {
         self.colorMap = colorMap
+        self.rawCSS = rawCSS
     }
 
     /// Get the hex color for a class name, if defined

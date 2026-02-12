@@ -50,17 +50,14 @@ internal struct AO3WorkParser {
         work.firstChapterHTML = html
         work.firstChapterNotes = try parseFirstChapterNotes(from: document)
         work.firstChapterSummary = try parseFirstChapterSummary(from: document)
-        
-        // Parse kudos token
-        // If the form/token exists, the user hasn't left kudos yet (or can leave more as guest)
-        // If it's missing, the user has likely already left kudos
-        work.kudosAuthenticityToken = parseKudosToken(from: document)
-        work.userHasLeftKudos = (work.kudosAuthenticityToken == nil)
     }
 
     // MARK: - Parsing Methods
-    
-    private func parseKudosToken(from document: Document) -> String? {
+
+    /// Parses kudos-related info from the work page.
+    /// Returns the authenticity token if the kudos form exists (user can leave kudos),
+    /// or nil if the form is missing (user has likely already left kudos).
+    static func parseKudosToken(from document: Document) -> String? {
         do {
             if let kudosForm = try document.select("form#new_kudo").first() {
                 return try kudosForm.select("input[name=authenticity_token]").attr("value")
@@ -198,12 +195,13 @@ internal struct AO3WorkParser {
             return (nil, nil)
         }
 
+        // Get plain text content from paragraphs
         let paragraphs = try article.select("p")
         let contentArray = try paragraphs.map { try $0.text() }
-        let htmlArray = try paragraphs.map { try $0.outerHtml() }
-
         let content = contentArray.joined(separator: "\n")
-        let html = htmlArray.joined(separator: "\n")
+
+        // Get full inner HTML to preserve all structure (divs, tables, images, etc.)
+        let html = try article.html()
 
         // Only return if we actually have content
         guard !content.isEmpty else {

@@ -1,6 +1,16 @@
 import Foundation
 import SwiftUI
 
+/// Types of web content that require WKWebView rendering
+public enum WebContentType: Sendable, Equatable {
+    case table
+    case image(src: String, alt: String?)
+    case ruby
+    case figure
+    case embed
+    case unknownBlock
+}
+
 /// Intermediate representation of parsed HTML
 public enum HTMLNode: Sendable {
     // Block-level elements (create vertical spacing)
@@ -15,6 +25,9 @@ public enum HTMLNode: Sendable {
     case div(children: [HTMLNode], attributes: [String: String])
     case details(summary: [HTMLNode], content: [HTMLNode])
 
+    // Web content (requires WKWebView)
+    case webContent(rawHTML: String, elementType: WebContentType)
+
     // Inline elements (no line breaks)
     case text(String)
     case formatted(children: [HTMLNode], style: TextStyle)
@@ -26,7 +39,7 @@ public enum HTMLNode: Sendable {
     public var isBlock: Bool {
         switch self {
         case .paragraph, .heading, .blockquote, .codeBlock,
-             .preformatted, .horizontalRule, .list, .div, .details:
+             .preformatted, .horizontalRule, .list, .div, .details, .webContent:
             return true
         case .text, .formatted, .link, .lineBreak, .span, .listItem:
             return false

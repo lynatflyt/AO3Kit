@@ -1,17 +1,18 @@
 import SwiftUI
 import AO3Kit
-import UIKit // Added unconditionally
+import UIKit
+import WebKit
 
-/// A high-performance reader view backed by a single UITextView
+/// A high-performance reader view that supports both native text and web content
 ///
-/// This view renders the entire chapter as a single rich text document, allowing
-/// for correct multi-line selection and native text handling.
+/// This view renders chapter content as a composite of UITextViews (for native text)
+/// and WKWebViews (for tables, images, and other web content).
 public struct AO3ChapterView<Header: View, Footer: View>: UIViewRepresentable {
-    private let attributedContent: NSAttributedString?
+    private let segments: [ContentSegment]
+    private let workSkinCSS: String?
     private let parseError: Error?
 
     /// Unique ID for this content - used to detect when content actually changes
-    /// without expensive O(n) attributed string comparison
     private let contentID: Int
 
     @Binding var topVisibleIndex: Int?
@@ -25,8 +26,6 @@ public struct AO3ChapterView<Header: View, Footer: View>: UIViewRepresentable {
     let footerView: Footer?
 
     /// Optional callback for custom "Share as Quote" functionality
-    /// When provided, adds a "Share as Quote" option to the text selection menu
-    /// The callback receives the selected text string
     let onShareQuote: ((String) -> Void)?
 
     /// Maximum character count for showing the share quote option (default: 500)
@@ -47,8 +46,7 @@ public struct AO3ChapterView<Header: View, Footer: View>: UIViewRepresentable {
         @ViewBuilder header: () -> Header,
         @ViewBuilder footer: () -> Footer
     ) {
-        // Generate content ID from inputs that affect the attributed string
-        // This avoids expensive O(n) NSAttributedString comparison
+        // Generate content ID from inputs
         var hasher = Hasher()
         hasher.combine(html)
         hasher.combine(workSkinCSS)
@@ -58,20 +56,18 @@ public struct AO3ChapterView<Header: View, Footer: View>: UIViewRepresentable {
         hasher.combine(textAlignment)
         self.contentID = hasher.finalize()
 
+        self.workSkinCSS = workSkinCSS
+
         do {
-            self.attributedContent = try AO3HTMLRenderer.parseToAttributed(
-                html,
-                workSkinCSS: workSkinCSS,
-                fontSize: fontSize,
-                fontDesign: fontDesign,
-                textColor: textColor,
-                textAlignment: textAlignment
-            )
+            let workSkin = CSSParser.parse(workSkinCSS)
+            let nodes = try HTMLParser.parse(html, workSkin: workSkin)
+            self.segments = ContentSegmenter.segment(nodes)
             self.parseError = nil
         } catch {
-            self.attributedContent = nil
+            self.segments = []
             self.parseError = error
         }
+
         self._topVisibleIndex = topVisibleIndex
         self.initialPosition = initialPosition
         self.fontSize = fontSize
@@ -122,206 +118,193 @@ public struct AO3ChapterView<Header: View, Footer: View>: UIViewRepresentable {
         Coordinator(self)
     }
 
-    public func makeUIView(context: Context) -> UITextView {
-        let textView = UITextView()
-        textView.isEditable = false
-        textView.isSelectable = true // Always allow selection logic, controlled via delegate or property
-        textView.backgroundColor = backgroundColor
-        textView.textContainer.lineFragmentPadding = 0
-        textView.textContainerInset = .zero
+    public func makeUIView(context: Context) -> UIScrollView {
+        let scrollView = UIScrollView()
+        scrollView.backgroundColor = backgroundColor
+        scrollView.delegate = context.coordinator
+        scrollView.showsHorizontalScrollIndicator = false
 
-        // Remove padding to fix "cropping" issues at edges
-        textView.contentInset = UIEdgeInsets(top: 0, left: 20, bottom: 80, right: 20)
+        let stackView = UIStackView()
+        stackView.axis = .vertical
+        stackView.alignment = .fill
+        stackView.distribution = .equalSpacing
+        stackView.spacing = 0
+        stackView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.addSubview(stackView)
 
-        textView.delegate = context.coordinator
+        context.coordinator.stackView = stackView
 
-        // Setup Header/Footer Controllers
+        // Setup constraints
+        NSLayoutConstraint.activate([
+            stackView.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor, constant: 20),
+            stackView.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor, constant: -20),
+            stackView.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
+            stackView.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -80),
+            stackView.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor, constant: -40)
+        ])
+
+        // Setup Header
         if let headerView = headerView {
             let hc = UIHostingController(rootView: AnyView(headerView))
             hc.view.backgroundColor = .clear
             hc.view.translatesAutoresizingMaskIntoConstraints = false
             context.coordinator.headerController = hc
-            textView.addSubview(hc.view)
+            stackView.addArrangedSubview(hc.view)
         }
 
-        if let footerView = footerView {
-            let fc = UIHostingController(rootView: AnyView(footerView))
-            fc.view.backgroundColor = .clear
-            fc.view.translatesAutoresizingMaskIntoConstraints = false
-            context.coordinator.footerController = fc
-            textView.addSubview(fc.view)
-        }
-
-        return textView
+        return scrollView
     }
 
-    public func updateUIView(_ textView: UITextView, context: Context) {
+    public func updateUIView(_ scrollView: UIScrollView, context: Context) {
         let coordinator = context.coordinator
         coordinator.parent = self
 
-        // Check if content actually changed using fast hash comparison (O(1))
-        // instead of expensive NSAttributedString comparison (O(n))
+        // Check if content actually changed
         let contentChanged = coordinator.lastContentID != contentID
         if contentChanged {
             coordinator.lastContentID = contentID
-            coordinator.needsTextHeightRecalculation = true
-            textView.attributedText = attributedContent
-            // Force layout to apply content insets immediately
-            textView.layoutIfNeeded()
+            rebuildContent(scrollView, context: context)
         }
 
-        textView.backgroundColor = backgroundColor
-        textView.isSelectable = true
+        scrollView.backgroundColor = backgroundColor
 
-        // Ensure horizontal content insets are always applied (fixes initial render without padding)
-        if textView.contentInset.left != 20 {
-            textView.contentInset.left = 20
-        }
-        if textView.contentInset.right != 20 {
-            textView.contentInset.right = 20
+        // Update header if needed
+        if let hc = coordinator.headerController, let headerView = headerView {
+            hc.rootView = AnyView(headerView)
         }
 
-        // Update Headers/Footers layout
-        // Defer to next run loop to ensure TextView has proper frame
-        if textView.frame.width == 0 {
-            DispatchQueue.main.async {
-                self.updateLayout(textView, context: context, contentChanged: contentChanged)
-            }
-        } else {
-            updateLayout(textView, context: context, contentChanged: contentChanged)
+        // Update footer if needed
+        if let fc = coordinator.footerController, let footerView = footerView {
+            fc.rootView = AnyView(footerView)
         }
 
         // Handle Initial Scroll
         if !coordinator.didInitialScroll, let initialPos = initialPosition {
             coordinator.didInitialScroll = true
-            // Map initialPos (assumed Y offset) to scroll
-            // Note: If initialPos was "paragraph index", this will be wrong.
-            // We assume the caller handles the semantic change or we accept the break.
             DispatchQueue.main.async {
-                textView.setContentOffset(CGPoint(x: 0, y: CGFloat(initialPos)), animated: false)
+                scrollView.setContentOffset(CGPoint(x: 0, y: CGFloat(initialPos)), animated: false)
             }
         }
     }
-    
-    private func updateLayout(_ textView: UITextView, context: Context, contentChanged: Bool) {
+
+    private func rebuildContent(_ scrollView: UIScrollView, context: Context) {
         let coordinator = context.coordinator
-        let width = textView.bounds.width > 0 ? textView.bounds.width : UIScreen.main.bounds.width
-        let safeWidth = width - textView.contentInset.left - textView.contentInset.right
+        guard let stackView = coordinator.stackView else { return }
 
-        // Check if width changed significantly
-        let widthChanged = abs(coordinator.lastLayoutWidth - safeWidth) > 0.5
-        if widthChanged {
-            coordinator.lastLayoutWidth = safeWidth
-            coordinator.needsTextHeightRecalculation = true
+        // Clear existing segment views (keep header)
+        for view in coordinator.segmentViews {
+            view.removeFromSuperview()
         }
+        coordinator.segmentViews.removeAll()
+        coordinator.webViewHeights.removeAll()
 
-        // Skip expensive layout operations if nothing meaningful changed
-        guard contentChanged || widthChanged || coordinator.needsTextHeightRecalculation else {
-            return
-        }
-
-        var topInset: CGFloat = 0
-
-        // Layout Header - only update rootView when content changed
-        if let hc = coordinator.headerController {
-            if contentChanged, let headerView = headerView {
-                hc.rootView = AnyView(headerView)
-            }
-
-            // Only re-measure if width changed or frame is not set
-            if widthChanged || hc.view.frame.height == 0 {
-                let size = hc.view.systemLayoutSizeFitting(
-                    CGSize(width: safeWidth, height: UIView.layoutFittingCompressedSize.height),
-                    withHorizontalFittingPriority: .required,
-                    verticalFittingPriority: .fittingSizeLevel
-                )
-                hc.view.frame = CGRect(x: 0, y: 0, width: safeWidth, height: size.height)
-                topInset = size.height
-            } else {
-                hc.view.frame = CGRect(x: 0, y: 0, width: safeWidth, height: hc.view.frame.height)
-                topInset = hc.view.frame.height
-            }
-        }
-
-        // Update text container
-        if textView.textContainerInset.top != topInset {
-            textView.textContainerInset.top = topInset
-        }
-
-        // Layout Footer
+        // Remove footer if exists
         if let fc = coordinator.footerController {
-            // Always update rootView to ensure bindings (like "mark as read" button state) are reflected
-            // SwiftUI's diffing will handle actual re-renders efficiently
-            if let footerView = footerView {
-                fc.rootView = AnyView(footerView)
+            fc.view.removeFromSuperview()
+        }
+
+        // Convert alignment
+        let nsAlignment: NSTextAlignment
+        switch textAlignment {
+        case .leading: nsAlignment = .left
+        case .center: nsAlignment = .center
+        case .trailing: nsAlignment = .right
+        case .justified: nsAlignment = .justified
+        }
+
+        // Add segments
+        for segment in segments {
+            switch segment {
+            case .nativeText(let nodes, let id):
+                let textView = createTextView(for: nodes, alignment: nsAlignment, context: context)
+                stackView.addArrangedSubview(textView)
+                coordinator.segmentViews.append(textView)
+                coordinator.segmentIDToView[id] = textView
+
+            case .webContent(let html, _, let id):
+                let webViewContainer = createWebViewContainer(for: html, id: id, context: context)
+                stackView.addArrangedSubview(webViewContainer)
+                coordinator.segmentViews.append(webViewContainer)
+                coordinator.segmentIDToView[id] = webViewContainer
             }
+        }
 
-            // Re-measure footer size if needed
-            var footerHeight = fc.view.frame.height
-            if widthChanged || footerHeight == 0 || contentChanged {
-                // Use a more generous fitting priority to ensure SwiftUI views with fixed heights are respected
-                let size = fc.view.systemLayoutSizeFitting(
-                    CGSize(width: safeWidth, height: 10000), // Allow unlimited height
-                    withHorizontalFittingPriority: .required,
-                    verticalFittingPriority: .defaultLow // Let SwiftUI determine its own height
-                )
-                footerHeight = max(size.height, 80) // Ensure minimum height of 80pt
-            }
-
-            // Only recalculate text height when needed (expensive operation!)
-            if coordinator.needsTextHeightRecalculation {
-                // Force layout before measuring to ensure accurate height
-                textView.layoutIfNeeded()
-
-                if #available(iOS 16.0, *), let textLayoutManager = textView.textLayoutManager {
-                    // Use TextKit 2 if available
-                    textLayoutManager.ensureLayout(for: textLayoutManager.documentRange)
-                    coordinator.cachedTextHeight = textLayoutManager.usageBoundsForTextContainer.height
-                } else {
-                    // Fallback to contentSize
-                    coordinator.cachedTextHeight = max(
-                        textView.contentSize.height - textView.textContainerInset.top - textView.textContainerInset.bottom,
-                        0
-                    )
-                }
-                coordinator.needsTextHeightRecalculation = false
-            }
-
-            let footerYPos = topInset + coordinator.cachedTextHeight + 20
-
-            // Position footer - same as header (full width at x: 0)
-            fc.view.frame = CGRect(x: 0, y: footerYPos, width: safeWidth, height: footerHeight)
-
-            let bottomInset = footerHeight + 40
-            if textView.contentInset.bottom != bottomInset {
-                textView.contentInset.bottom = bottomInset
-            }
+        // Add footer
+        if let footerView = footerView {
+            let fc = UIHostingController(rootView: AnyView(footerView))
+            fc.view.backgroundColor = .clear
+            fc.view.translatesAutoresizingMaskIntoConstraints = false
+            coordinator.footerController = fc
+            stackView.addArrangedSubview(fc.view)
         }
     }
 
-    public class Coordinator: NSObject, UITextViewDelegate {
+    private func createTextView(for nodes: [HTMLNode], alignment: NSTextAlignment, context: Context) -> UITextView {
+        let textView = ShareableTextView()
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.isScrollEnabled = false
+        textView.backgroundColor = backgroundColor
+        textView.textContainerInset = UIEdgeInsets(top: 8, left: 0, bottom: 8, right: 0)
+        textView.textContainer.lineFragmentPadding = 0
+
+        // Set up share quote callback
+        textView.onShareQuote = onShareQuote
+        textView.shareQuoteMaxLength = shareQuoteMaxLength
+
+        let attributedString = AttributedStringBuilder.build(
+            from: nodes,
+            baseStyle: TextStyle(),
+            fontSize: fontSize,
+            fontDesign: fontDesign.uiFontDescriptorDesign,
+            textColor: textColor,
+            alignment: alignment
+        )
+        textView.attributedText = attributedString
+
+        return textView
+    }
+
+    private func createWebViewContainer(for html: String, id: UUID, context: Context) -> UIView {
+        let container = WebViewContainer(
+            html: html,
+            workSkinCSS: workSkinCSS,
+            fontSize: fontSize,
+            textColor: textColor,
+            backgroundColor: backgroundColor,
+            coordinator: context.coordinator,
+            segmentID: id
+        )
+        return container
+    }
+
+    public class Coordinator: NSObject, UIScrollViewDelegate {
         var parent: AO3ChapterView
+        var stackView: UIStackView?
         var headerController: UIHostingController<AnyView>?
         var footerController: UIHostingController<AnyView>?
         var didInitialScroll = false
-        var lastLayoutWidth: CGFloat = 0
-
-        /// Cached content ID to detect when attributed content actually changes
         var lastContentID: Int = 0
 
-        /// Cached text height to avoid expensive ensureLayout calls
-        var cachedTextHeight: CGFloat = 0
+        /// Views for each content segment
+        var segmentViews: [UIView] = []
+        var segmentIDToView: [UUID: UIView] = [:]
 
-        /// Whether text height needs recalculation (set when content changes)
-        var needsTextHeightRecalculation = true
+        /// Track web view heights for layout
+        var webViewHeights: [UUID: CGFloat] = [:]
 
         init(_ parent: AO3ChapterView) {
             self.parent = parent
         }
 
-        // MARK: - UITextViewDelegate
+        func updateWebViewHeight(for id: UUID, height: CGFloat) {
+            webViewHeights[id] = height
+            if let container = segmentIDToView[id] as? WebViewContainer {
+                container.updateHeight(height)
+            }
+        }
 
-        // Only update binding when scrolling stops to prevent "multiple updates per frame" and excessive re-renders
+        // MARK: - UIScrollViewDelegate
 
         public func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
             updateVisibleIndex(scrollView)
@@ -339,43 +322,290 @@ public struct AO3ChapterView<Header: View, Footer: View>: UIViewRepresentable {
                 parent.topVisibleIndex = newIndex
             }
         }
+    }
+}
 
-        // MARK: - Edit Menu Customization
+// MARK: - WebViewContainer
 
-        /// Adds "Share as Quote" option to text selection menu (iOS 16+)
-        public func textView(
-            _ textView: UITextView,
-            editMenuForTextIn range: NSRange,
-            suggestedActions: [UIMenuElement]
-        ) -> UIMenu? {
-            // Only add share option if callback is provided
-            guard let onShareQuote = parent.onShareQuote else {
-                return UIMenu(children: suggestedActions)
+/// A container view that hosts a WKWebView and manages its height
+class WebViewContainer: UIView, WKNavigationDelegate, WKScriptMessageHandler {
+    private let webView: WKWebView
+    private var heightConstraint: NSLayoutConstraint?
+    private let segmentID: UUID
+    private var contentHash: Int = 0
+
+    init<Header: View, Footer: View>(
+        html: String,
+        workSkinCSS: String?,
+        fontSize: CGFloat,
+        textColor: UIColor,
+        backgroundColor: UIColor,
+        coordinator: AO3ChapterView<Header, Footer>.Coordinator,
+        segmentID: UUID
+    ) {
+        self.segmentID = segmentID
+
+        let config = WKWebViewConfiguration()
+        config.suppressesIncrementalRendering = true
+
+        // Add message handler for height updates
+        let userController = WKUserContentController()
+        config.userContentController = userController
+
+        self.webView = WKWebView(frame: .zero, configuration: config)
+
+        super.init(frame: .zero)
+
+        webView.navigationDelegate = self
+        webView.scrollView.isScrollEnabled = false
+        webView.scrollView.bounces = false
+        webView.isOpaque = false
+        webView.backgroundColor = backgroundColor
+        webView.scrollView.backgroundColor = backgroundColor
+        webView.translatesAutoresizingMaskIntoConstraints = false
+
+        addSubview(webView)
+
+        NSLayoutConstraint.activate([
+            webView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            webView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            webView.topAnchor.constraint(equalTo: topAnchor),
+            webView.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+
+        // Initial height constraint
+        heightConstraint = heightAnchor.constraint(equalToConstant: 100)
+        heightConstraint?.priority = .defaultHigh
+        heightConstraint?.isActive = true
+
+        // Add height message handler
+        config.userContentController.add(self, name: "heightHandler")
+
+        // Load content
+        let fullHTML = buildFullHTML(
+            html: html,
+            workSkinCSS: workSkinCSS,
+            fontSize: fontSize,
+            textColor: textColor,
+            backgroundColor: backgroundColor
+        )
+        contentHash = html.hashValue
+        webView.loadHTMLString(fullHTML, baseURL: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func updateHeight(_ height: CGFloat) {
+        heightConstraint?.constant = height
+        setNeedsLayout()
+    }
+
+    private func buildFullHTML(
+        html: String,
+        workSkinCSS: String?,
+        fontSize: CGFloat,
+        textColor: UIColor,
+        backgroundColor: UIColor
+    ) -> String {
+        let textColorHex = textColor.hexString
+        let bgColorHex = backgroundColor.hexString
+
+        return """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+            <style>
+                /* Minimal reset - don't override work skin styles */
+                html, body {
+                    margin: 0;
+                    padding: 0;
+                    background-color: \(bgColorHex);
+                    color: \(textColorHex);
+                    font-family: -apple-system, system-ui, sans-serif;
+                    font-size: \(fontSize)px;
+                    line-height: 1.5;
+                    -webkit-text-size-adjust: none;
+                    overflow: hidden;
+                }
+                body {
+                    padding: 8px 0;
+                }
+                /* Only constrain large images, don't force block display */
+                img {
+                    max-width: 100%;
+                    height: auto;
+                }
+                /* Default table styling (work skin can override) */
+                table:not([class]) {
+                    border-collapse: collapse;
+                    width: 100%;
+                    margin: 0.5em 0;
+                }
+                table:not([class]) th,
+                table:not([class]) td {
+                    border: 1px solid \(textColorHex)40;
+                    padding: 0.5em;
+                    text-align: left;
+                }
+                table:not([class]) th {
+                    background-color: \(textColorHex)10;
+                    font-weight: bold;
+                }
+                ruby {
+                    ruby-align: center;
+                }
+                rt {
+                    font-size: 0.6em;
+                }
+                figure {
+                    margin: 0.5em 0;
+                    text-align: center;
+                }
+                figcaption {
+                    font-size: 0.9em;
+                    margin-top: 0.5em;
+                }
+                /* Work skin CSS - loaded after base styles so it takes precedence */
+                #workskin {
+                    width: 100%;
+                }
+                \(workSkinCSS ?? "")
+            </style>
+        </head>
+        <body>
+            <div id="workskin">
+                \(html)
+            </div>
+            <script>
+                function reportHeight() {
+                    const height = document.body.scrollHeight;
+                    window.webkit.messageHandlers.heightHandler.postMessage(height);
+                }
+                window.onload = function() {
+                    // Wait for images to load
+                    const images = document.getElementsByTagName('img');
+                    let loadedCount = 0;
+                    const totalImages = images.length;
+
+                    if (totalImages === 0) {
+                        reportHeight();
+                        return;
+                    }
+
+                    for (let img of images) {
+                        if (img.complete) {
+                            loadedCount++;
+                            if (loadedCount === totalImages) {
+                                reportHeight();
+                            }
+                        } else {
+                            img.onload = img.onerror = function() {
+                                loadedCount++;
+                                if (loadedCount === totalImages) {
+                                    reportHeight();
+                                }
+                            };
+                        }
+                    }
+                };
+                new ResizeObserver(reportHeight).observe(document.body);
+            </script>
+        </body>
+        </html>
+        """
+    }
+
+    // MARK: - WKNavigationDelegate
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        webView.evaluateJavaScript("document.body.scrollHeight") { [weak self] result, _ in
+            if let height = result as? CGFloat, height > 0, let self = self {
+                DispatchQueue.main.async {
+                    self.updateHeight(height)
+                }
             }
-
-            // Get selected text and validate length
-            guard let text = textView.text,
-                  let swiftRange = Range(range, in: text) else {
-                return UIMenu(children: suggestedActions)
-            }
-
-            let selectedText = String(text[swiftRange])
-
-            // Don't show option if selection is empty or too long
-            guard !selectedText.isEmpty,
-                  selectedText.count <= parent.shareQuoteMaxLength else {
-                return UIMenu(children: suggestedActions)
-            }
-
-            let shareAction = UIAction(
-                title: "Share as Quote",
-                image: UIImage(systemName: "quote.bubble")
-            ) { _ in
-                onShareQuote(selectedText)
-            }
-
-            return UIMenu(children: suggestedActions + [shareAction])
         }
+        
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction,
+        decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+    ) {
+        if navigationAction.navigationType == .linkActivated {
+            if let url = navigationAction.request.url {
+                UIApplication.shared.open(url)
+            }
+            decisionHandler(.cancel)
+        } else {
+            decisionHandler(.allow)
+        }
+    }
+
+    // MARK: - WKScriptMessageHandler
+
+    func userContentController(
+        _ userContentController: WKUserContentController,
+        didReceive message: WKScriptMessage
+    ) {
+        if message.name == "heightHandler", let height = message.body as? CGFloat {
+            DispatchQueue.main.async {
+                self.updateHeight(height)
+            }
+        }
+    }
+}
+
+// MARK: - ShareableTextView
+
+/// A UITextView subclass that supports the "Share as Quote" edit menu action
+class ShareableTextView: UITextView, UITextViewDelegate {
+    var onShareQuote: ((String) -> Void)?
+    var shareQuoteMaxLength: Int = 500
+
+    override init(frame: CGRect, textContainer: NSTextContainer?) {
+        super.init(frame: frame, textContainer: textContainer)
+        delegate = self
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        delegate = self
+    }
+
+    func textView(
+        _ textView: UITextView,
+        editMenuForTextIn range: NSRange,
+        suggestedActions: [UIMenuElement]
+    ) -> UIMenu? {
+        guard let onShareQuote = onShareQuote else {
+            return UIMenu(children: suggestedActions)
+        }
+
+        guard let text = textView.text,
+              let swiftRange = Range(range, in: text) else {
+            return UIMenu(children: suggestedActions)
+        }
+
+        let selectedText = String(text[swiftRange])
+
+        guard !selectedText.isEmpty,
+              selectedText.count <= shareQuoteMaxLength else {
+            return UIMenu(children: suggestedActions)
+        }
+
+        let shareAction = UIAction(
+            title: "Share as Quote",
+            image: UIImage(systemName: "quote.bubble")
+        ) { _ in
+            onShareQuote(selectedText)
+        }
+
+        return UIMenu(children: suggestedActions + [shareAction])
     }
 }
 
@@ -506,25 +736,28 @@ extension AO3ChapterView where Header == EmptyView, Footer == EmptyView {
         )
     }
 }
+
 // MARK: - Preview
 
-#Preview("AO3ChapterView with Footer") {
+#Preview("AO3ChapterView with Mixed Content") {
     struct PreviewWrapper: View {
         @State private var scrollPosition: Int? = nil
-        
+
         var body: some View {
             AO3ChapterView(
                 html: """
                 <p>This is a test chapter with some content.</p>
+                <p>Here's a table:</p>
+                <table>
+                    <tr><th>Character</th><th>Role</th></tr>
+                    <tr><td>Alice</td><td>Protagonist</td></tr>
+                    <tr><td>Bob</td><td>Antagonist</td></tr>
+                </table>
+                <p>And here's more text after the table.</p>
                 <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
-                <p>Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>
-                <p>Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.</p>
-                <p>Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore.</p>
-                <p>Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</p>
                 """,
                 topVisibleIndex: $scrollPosition
             ) {
-                // Example header
                 VStack {
                     Text("Chapter 1")
                         .font(.caption)
@@ -537,16 +770,11 @@ extension AO3ChapterView where Header == EmptyView, Footer == EmptyView {
                 .padding()
                 .background(Color.gray.opacity(0.1))
             } footer: {
-                // Example footer - app provides its own footer content
                 VStack(spacing: 12) {
                     Divider()
-                    
+
                     Text("Footer content goes here")
                         .font(.caption)
-                        .foregroundColor(.secondary)
-                    
-                    Text("(Provided by the app)")
-                        .font(.caption2)
                         .foregroundColor(.secondary)
                 }
                 .frame(maxWidth: .infinity)
@@ -555,7 +783,6 @@ extension AO3ChapterView where Header == EmptyView, Footer == EmptyView {
             }
         }
     }
-    
+
     return PreviewWrapper()
 }
-
