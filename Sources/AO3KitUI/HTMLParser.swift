@@ -38,6 +38,11 @@ public struct HTMLParser: Sendable {
     private static func parseElement(_ element: Element, style: TextStyle, workSkin: WorkSkin) throws -> [HTMLNode] {
         let tag = element.tagName().lowercased()
 
+        // Skip AO3 landmark elements (screen-reader-only, hidden via CSS on AO3)
+        if let className = try? element.className(), className.contains("landmark") {
+            return []
+        }
+
         switch tag {
         // Block elements
         case "p":
