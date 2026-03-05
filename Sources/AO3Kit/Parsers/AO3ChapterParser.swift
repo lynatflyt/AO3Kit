@@ -13,10 +13,14 @@ internal struct AO3ChapterParser {
         let (number, title) = try parseChapterInfo(from: document)
         chapter.number = number
         chapter.title = title
-        chapter.content = try parseContent(from: document)
-        chapter.contentHTML = try parseContentHTML(from: document)
+
+        // Parse notes and summary first since they use selectors outside [role=article].
+        // parseContent/parseContentHTML mutate the article element to strip preamble,
+        // so they must run after notes/summary extraction.
         chapter.notes = try parseNotes(from: document)
         chapter.summary = try parseSummary(from: document)
+        chapter.content = try parseContent(from: document)
+        chapter.contentHTML = try parseContentHTML(from: document)
     }
 
     // MARK: - Parsing Methods
@@ -55,20 +59,36 @@ internal struct AO3ChapterParser {
     }
 
     private func parseContent(from document: Document) throws -> String {
-        if let article = try document.select("[role=article]").first() {
-            let paragraphs = try article.select("p")
-            let contentArray = try paragraphs.map { try $0.text() }
-            return contentArray.joined(separator: "\n")
+        guard let article = try document.select("[role=article]").first() else {
+            return ""
         }
-        return ""
+
+        // Remove preamble (summary/notes) before extracting text content
+        for landmark in try article.select("h3.landmark") {
+            try landmark.remove()
+        }
+        AO3WorkParser.stripLeadingPreamble(from: article)
+
+        let paragraphs = try article.select("p")
+        let contentArray = try paragraphs.map { try $0.text() }
+        return contentArray.joined(separator: "\n")
     }
 
     private func parseContentHTML(from document: Document) throws -> String {
-        if let article = try document.select("[role=article]").first() {
-            // Return full inner HTML to preserve all structure (divs, tables, images, etc.)
-            return try article.html()
+        guard let article = try document.select("[role=article]").first() else {
+            return ""
         }
-        return ""
+
+        // AO3 injects summary and notes as bare <p> tags at the top of the article,
+        // separated by <hr> tags, before the actual chapter content.
+        // Structure: [h3.landmark] [summary <p>] [<hr>] [notes <p>] [<hr>] [chapter content...]
+        // We need to strip these out since they're already parsed into separate fields.
+        for landmark in try article.select("h3.landmark") {
+            try landmark.remove()
+        }
+        AO3WorkParser.stripLeadingPreamble(from: article)
+
+        return try article.html()
     }
 
     private func parseNotes(from document: Document) throws -> [String] {

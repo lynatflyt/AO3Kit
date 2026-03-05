@@ -94,16 +94,26 @@ public struct HTMLParser: Sendable {
             // Check if this is an AO3 structural div (parse inside) or a work-skin styled div (webContent)
             let className = (try? element.className()) ?? ""
 
+            // Skip metadata containers that are already parsed into separate fields
+            // (summary, notes) - these should not appear inline in chapter content
+            let divClasses = Set(className.split(separator: " ").map { String($0).lowercased() })
+            let metadataContainers: [Set<String>] = [
+                ["notes", "module"],
+                ["summary", "module"]
+            ]
+            if metadataContainers.contains(where: { $0.isSubset(of: divClasses) }) {
+                return []
+            }
+
             // AO3 structural classes - these are containers, parse inside them
             let ao3StructuralClasses = [
-                "chapter", "preface", "group", "userstuff", "module", "notes",
-                "end", "endnotes", "summary", "byline", "landmark", "wrapper",
+                "chapter", "preface", "group", "userstuff", "module",
+                "end", "endnotes", "byline", "landmark", "wrapper",
                 "meta", "tags", "stats", "series", "associations", "children",
                 "parent", "work", "header", "footer", "nav", "navigation"
             ]
 
             // Check if ALL of the div's classes are AO3 structural classes
-            let divClasses = className.split(separator: " ").map { String($0).lowercased() }
             let isStructuralDiv = !divClasses.isEmpty && divClasses.allSatisfy { divClass in
                 ao3StructuralClasses.contains(where: { divClass.contains($0) })
             }

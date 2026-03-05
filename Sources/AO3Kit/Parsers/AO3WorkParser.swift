@@ -44,12 +44,13 @@ internal struct AO3WorkParser {
         // Parse work skin CSS if present
         work.workSkinCSS = try parseWorkSkinCSS(from: document)
 
-        // Parse first chapter content (displayed on work page)
+        // Parse notes and summary before content since parseFirstChapterContent
+        // mutates the article element to strip preamble
+        work.firstChapterNotes = try parseFirstChapterNotes(from: document)
+        work.firstChapterSummary = try parseFirstChapterSummary(from: document)
         let (content, html) = try parseFirstChapterContent(from: document)
         work.firstChapterContent = content
         work.firstChapterHTML = html
-        work.firstChapterNotes = try parseFirstChapterNotes(from: document)
-        work.firstChapterSummary = try parseFirstChapterSummary(from: document)
     }
 
     // MARK: - Parsing Methods
@@ -195,6 +196,13 @@ internal struct AO3WorkParser {
             return (nil, nil)
         }
 
+        // Strip the summary/notes preamble that AO3 injects at the top of the article.
+        // Structure: [h3.landmark] [summary <p>] [<hr>] [notes <p>] [<hr>] [chapter content...]
+        for landmark in try article.select("h3.landmark") {
+            try landmark.remove()
+        }
+        AO3WorkParser.stripLeadingPreamble(from: article)
+
         // Get plain text content from paragraphs
         let paragraphs = try article.select("p")
         let contentArray = try paragraphs.map { try $0.text() }
@@ -236,6 +244,43 @@ internal struct AO3WorkParser {
             return summaryArray.joined(separator: "\n")
         }
         return ""
+    }
+
+    // MARK: - Preamble Stripping
+
+    /// Strips the leading summary and notes preamble from an article element.
+    /// AO3 places summary and notes as plain paragraphs at the top of the article,
+    /// separated by <hr> elements. This method removes everything up to and including
+    /// those <hr> separators, leaving only the actual chapter content.
+    static func stripLeadingPreamble(from article: Element) {
+        let children = article.getChildNodes()
+        var nodesToRemove: [Node] = []
+        var hrCount = 0
+
+        for child in children {
+            if let element = child as? Element {
+                let tag = element.tagName().lowercased()
+                if tag == "hr" {
+                    hrCount += 1
+                    nodesToRemove.append(child)
+                    if hrCount >= 2 {
+                        break
+                    }
+                } else {
+                    nodesToRemove.append(child)
+                }
+            } else if child is TextNode {
+                if hrCount < 2 {
+                    nodesToRemove.append(child)
+                }
+            }
+        }
+
+        guard hrCount > 0 else { return }
+
+        for node in nodesToRemove {
+            try? node.remove()
+        }
     }
 
     // MARK: - Tag Helpers
